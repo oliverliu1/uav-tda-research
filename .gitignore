@@ -1,7 +1,7 @@
 # Data files
-data/
-outputs/
-results/
+# data/
+# outputs/
+# results/
 
 # Python
 __pycache__/
