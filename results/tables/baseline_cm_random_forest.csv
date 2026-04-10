@@ -1,0 +1,6 @@
+,Blackhole Attack,Flooding Attack,Normal Traffic,Sybil Attack,Wormhole Attack
+Blackhole Attack,4531,2,0,0,689
+Flooding Attack,0,3939,0,2,4
+Normal Traffic,1,0,5187,0,47
+Sybil Attack,0,0,0,4814,2
+Wormhole Attack,151,6,36,1,5023

@@ -1,0 +1,4 @@
+Model,CV_Mean,CV_Std,Test_Accuracy,Test_Precision,Test_Recall,Test_F1,Test_AUC
+Logistic Regression,0.7657,0.0085,0.7583,0.7631,0.7583,0.76,0.9454
+Random Forest,0.961,0.0007,0.9615,0.9637,0.9615,0.9615,0.9971
+SVM,0.6164,0.004,0.621,0.6867,0.621,0.6101,0.8971
