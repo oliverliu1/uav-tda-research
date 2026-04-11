@@ -1,7 +1,14 @@
-# Data files
-# data/
-# outputs/
-# results/
+# Large data files - DO NOT COMMIT
+outputs/persistence_diagrams/*.npy
+outputs/persistence_diagrams/*.pkl
+outputs/tda_features/
+data/*.csv
+
+# Model files
+results/models/*.pkl
+
+# Logs
+logs/
 
 # Python
 __pycache__/
@@ -35,7 +42,7 @@ env/
 .DS_Store
 Thumbs.db
 
-# Pickle / binary artifacts
+# Pickle / binary artifacts - EXCEPT in outputs/results
 *.pkl
 *.pickle
 *.joblib
