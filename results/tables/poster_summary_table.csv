@@ -1,0 +1,4 @@
+Model,Baseline (%),TDA (%),Improvement (%)
+Logistic Regression,75.83,97.01,27.93
+Random Forest,96.15,99.91,3.91
+SVM,62.1,99.12,59.61
