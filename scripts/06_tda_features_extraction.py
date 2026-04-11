@@ -197,6 +197,14 @@ tda_features_df = pd.DataFrame(all_features)
 print(f"TDA features extracted: {tda_features_df.shape}")
 print(f"  - Samples: {len(tda_features_df):,}")
 print(f"  - Features per sample: {tda_features_df.shape[1]}")
+
+# Check for NaN values
+nan_count = tda_features_df.isna().sum().sum()
+if nan_count > 0:
+    print(f"\n⚠️  Found {nan_count} NaN values (from missing topological features)")
+    print(f"  Replacing NaN with 0 (no features = zero statistics)")
+    tda_features_df = tda_features_df.fillna(0)
+    print(f"  ✓ All NaN values replaced with 0")
 print()
 
 # ==============================================================================
