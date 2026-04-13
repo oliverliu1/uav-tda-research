@@ -17,7 +17,6 @@ import numpy as np
 import pickle
 import os
 from datetime import datetime
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
@@ -49,51 +48,48 @@ print("=" * 80)
 print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
 # ==============================================================================
-# LOAD COMBINED FEATURES
+# LOAD PRE-SPLIT COMBINED FEATURES
+#
+# Script 06 saves separate train/test files that were produced WITHOUT any
+# cross-split contamination in the TDA neighborhood computation.
+# We load those directly — no train_test_split call needed here.
 # ==============================================================================
-print("Loading combined feature set (Original + TDA)...")
+print("Loading pre-split combined feature sets (Original + TDA)...")
 print("-" * 80)
 
 try:
-    combined_df = pd.read_csv(f"{FEATURES_DIR}/combined_features_with_labels.csv")
+    train_df = pd.read_csv(f"{FEATURES_DIR}/combined_features_train.csv")
+    test_df = pd.read_csv(f"{FEATURES_DIR}/combined_features_test.csv")
 
-    print(f"✓ Combined features loaded: {combined_df.shape}")
-    print(f"  - Total features: {combined_df.shape[1] - 1} (excluding label)")
-    print(f"  - Samples: {len(combined_df):,}")
+    print(f"✓ Train features loaded: {train_df.shape}")
+    print(f"✓ Test features loaded:  {test_df.shape}")
+    print(f"  - Features per sample: {train_df.shape[1] - 1} (excluding label)")
 
-    # Separate features and labels
-    X_combined = combined_df.drop("label", axis=1)
-    y = combined_df["label"]
+    X_train = train_df.drop("label", axis=1)
+    y_train = train_df["label"]
 
-    print(f"\n✓ Features: {X_combined.shape}")
-    print(f"✓ Labels: {y.shape}")
-    print(f"\nLabel distribution:")
-    print(y.value_counts())
+    X_test = test_df.drop("label", axis=1)
+    y_test = test_df["label"]
+
+    # Keep X_combined column reference for feature importance output
+    X_combined = X_train  # same columns
+
+    print(f"\n✓ Train: {X_train.shape[0]:,} samples")
+    print(f"✓ Test:  {X_test.shape[0]:,} samples")
+    print(f"\nTrain label distribution:")
+    print(y_train.value_counts())
+    print(f"\nTest label distribution:")
+    print(y_test.value_counts())
     print()
 
 except FileNotFoundError as e:
-    print(f"✗ ERROR: Combined features not found")
+    print(f"✗ ERROR: Pre-split combined features not found")
     print(f"  {e}")
     print("  Please run Script 6 first.")
     exit(1)
 
-# ==============================================================================
-# TRAIN-TEST SPLIT
-# ==============================================================================
-print("-" * 80)
-print("Creating train-test split (80/20, stratified)...")
-print("-" * 80)
-
-# Use same random state as baseline for fair comparison
+# Random state for reproducibility (matches split in Script 01)
 RANDOM_STATE = 42
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X_combined, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y
-)
-
-print(f"✓ Train set: {X_train.shape[0]:,} samples")
-print(f"✓ Test set: {X_test.shape[0]:,} samples")
-print()
 
 # ==============================================================================
 # FEATURE SCALING

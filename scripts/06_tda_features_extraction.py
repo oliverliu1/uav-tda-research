@@ -15,6 +15,13 @@ Features extracted per homology dimension:
 - Total persistence
 - Persistence entropy
 
+DATA LEAKAGE PREVENTION:
+- Loads separate train/test persistence diagrams (produced by Scripts 03-05)
+- Extracts features independently for each split
+- Saves separate train/test feature files consumed by Script 07
+- The combined_features files preserve the original row order of the full
+  dataset so that train_indices / test_indices index them correctly
+
 Author: Oliver Liu
 Date: April 2026
 """
@@ -41,25 +48,47 @@ print("=" * 80)
 print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
 # ==============================================================================
-# LOAD PERSISTENCE DIAGRAMS
+# LOAD PERSISTENCE DIAGRAMS (TRAIN AND TEST SEPARATELY)
 # ==============================================================================
-print("Loading persistence diagrams from all three manifolds...")
+print("Loading persistence diagrams from all three manifolds (train + test splits)...")
 print("-" * 80)
 
 try:
-    c2_diagrams = np.load(f"{PERSISTENCE_DIR}/c2_persistence_diagrams.npy")
-    network_diagrams = np.load(f"{PERSISTENCE_DIR}/network_persistence_diagrams.npy")
-    physical_diagrams = np.load(f"{PERSISTENCE_DIR}/physical_persistence_diagrams.npy")
-    labels = pd.read_csv(f"{OUTPUT_DIR}/labels.csv")["label"]
+    # Train diagrams
+    c2_train = np.load(f"{PERSISTENCE_DIR}/c2_persistence_diagrams_train.npy")
+    network_train = np.load(f"{PERSISTENCE_DIR}/network_persistence_diagrams_train.npy")
+    physical_train = np.load(f"{PERSISTENCE_DIR}/physical_persistence_diagrams_train.npy")
 
-    print(f"✓ C2 diagrams loaded: {c2_diagrams.shape}")
-    print(f"✓ Network diagrams loaded: {network_diagrams.shape}")
-    print(f"✓ Physical diagrams loaded: {physical_diagrams.shape}")
-    print(f"✓ Labels loaded: {len(labels):,} samples\n")
+    # Test diagrams
+    c2_test = np.load(f"{PERSISTENCE_DIR}/c2_persistence_diagrams_test.npy")
+    network_test = np.load(f"{PERSISTENCE_DIR}/network_persistence_diagrams_test.npy")
+    physical_test = np.load(f"{PERSISTENCE_DIR}/physical_persistence_diagrams_test.npy")
+
+    # Labels and split indices
+    labels = pd.read_csv(f"{OUTPUT_DIR}/labels.csv")["label"]
+    train_indices = np.load(f"{OUTPUT_DIR}/train_indices.npy")
+    test_indices = np.load(f"{OUTPUT_DIR}/test_indices.npy")
+
+    print(f"✓ C2 train diagrams:       {c2_train.shape}")
+    print(f"✓ C2 test diagrams:        {c2_test.shape}")
+    print(f"✓ Network train diagrams:  {network_train.shape}")
+    print(f"✓ Network test diagrams:   {network_test.shape}")
+    print(f"✓ Physical train diagrams: {physical_train.shape}")
+    print(f"✓ Physical test diagrams:  {physical_test.shape}")
+    print(f"✓ Labels: {len(labels):,} samples total")
+    print(f"✓ Train indices: {len(train_indices):,}  |  Test indices: {len(test_indices):,}\n")
+
+    # Sanity checks
+    assert len(c2_train) == len(train_indices), (
+        f"C2 train diagram count ({len(c2_train)}) != train_indices ({len(train_indices)})"
+    )
+    assert len(c2_test) == len(test_indices), (
+        f"C2 test diagram count ({len(c2_test)}) != test_indices ({len(test_indices)})"
+    )
+    print("✓ Shape sanity checks passed\n")
 
 except FileNotFoundError as e:
-    print(f"✗ ERROR: Missing persistence diagrams")
-    print(f"  {e}")
+    print(f"✗ ERROR: Missing persistence diagrams: {e}")
     print("  Please run Scripts 3-5 first.")
     exit(1)
 
@@ -94,6 +123,7 @@ def extract_features_from_diagram(diagram, manifold_name):
             features[f"{prefix}_total_persistence"] = 0
             features[f"{prefix}_mean_birth"] = 0
             features[f"{prefix}_mean_death"] = 0
+            features[f"{prefix}_entropy"] = 0
             continue
 
         # Get birth, death times for this dimension
@@ -115,6 +145,7 @@ def extract_features_from_diagram(diagram, manifold_name):
             features[f"{prefix}_total_persistence"] = 0
             features[f"{prefix}_mean_birth"] = 0
             features[f"{prefix}_mean_death"] = 0
+            features[f"{prefix}_entropy"] = 0
             continue
 
         # Compute persistence (lifetime)
@@ -143,68 +174,84 @@ def extract_features_from_diagram(diagram, manifold_name):
     return features
 
 
-print("✓ Feature extraction functions defined")
-print()
+def extract_features_for_split(c2_diags, network_diags, physical_diags, split_name):
+    """
+    Extract TDA features for all samples in one split.
+    All three diagram arrays must have the same first dimension.
+    """
+    n = len(c2_diags)
+    assert len(network_diags) == n and len(physical_diags) == n
+
+    all_features = []
+    start_time = datetime.now()
+
+    for idx in range(n):
+        sample_features = {}
+        sample_features.update(extract_features_from_diagram(c2_diags[idx], "C2"))
+        sample_features.update(extract_features_from_diagram(network_diags[idx], "Network"))
+        sample_features.update(extract_features_from_diagram(physical_diags[idx], "Physical"))
+        all_features.append(sample_features)
+
+        if (idx + 1) % 10000 == 0 or (idx + 1) == n:
+            elapsed = (datetime.now() - start_time).total_seconds()
+            print(
+                f"  [{split_name}] {idx+1:,}/{n:,} "
+                f"({(idx+1)/n*100:.1f}%) | Elapsed: {elapsed:.1f}s"
+            )
+
+    return pd.DataFrame(all_features).fillna(0)
+
+
+print("✓ Feature extraction functions defined\n")
 
 # ==============================================================================
-# EXTRACT FEATURES FOR ALL SAMPLES
+# EXTRACT FEATURES — TRAIN SPLIT
 # ==============================================================================
 print("=" * 80)
-print("EXTRACTING TDA FEATURES FROM ALL MANIFOLDS")
+print("EXTRACTING TDA FEATURES — TRAIN SPLIT")
 print("=" * 80)
-print(f"Processing {len(c2_diagrams):,} samples...")
+
+tda_train_df = extract_features_for_split(
+    c2_train, network_train, physical_train, "train"
+)
+print(f"\n✓ Train TDA features: {tda_train_df.shape}")
+
+# ==============================================================================
+# EXTRACT FEATURES — TEST SPLIT
+# ==============================================================================
 print()
+print("=" * 80)
+print("EXTRACTING TDA FEATURES — TEST SPLIT")
+print("=" * 80)
 
-start_time = datetime.now()
+tda_test_df = extract_features_for_split(
+    c2_test, network_test, physical_test, "test"
+)
+print(f"\n✓ Test TDA features: {tda_test_df.shape}")
 
-all_features = []
-
-for idx in range(len(c2_diagrams)):
-    sample_features = {}
-
-    # Extract from C2 manifold
-    c2_feats = extract_features_from_diagram(c2_diagrams[idx], "C2")
-    sample_features.update(c2_feats)
-
-    # Extract from Network manifold
-    network_feats = extract_features_from_diagram(network_diagrams[idx], "Network")
-    sample_features.update(network_feats)
-
-    # Extract from Physical manifold
-    physical_feats = extract_features_from_diagram(physical_diagrams[idx], "Physical")
-    sample_features.update(physical_feats)
-
-    all_features.append(sample_features)
-
-    # Progress
-    if (idx + 1) % 10000 == 0 or (idx + 1) == len(c2_diagrams):
-        elapsed = (datetime.now() - start_time).total_seconds()
-        print(
-            f"  Processed {idx+1:,}/{len(c2_diagrams):,} "
-            f"({(idx+1)/len(c2_diagrams)*100:.1f}%) | "
-            f"Elapsed: {elapsed:.1f}s"
-        )
-
-total_time = (datetime.now() - start_time).total_seconds()
-
+# ==============================================================================
+# RECONSTRUCT FULL-DATASET ORDER
+# Reassemble a (n_total, n_features) array in the original row order so that
+# train_indices and test_indices index it correctly in Script 07.
+# ==============================================================================
 print()
-print(f"✓ Feature extraction complete in {total_time:.1f} seconds")
-print()
+print("-" * 80)
+print("Reassembling full-dataset feature matrix in original row order...")
+print("-" * 80)
 
-# Convert to DataFrame
-tda_features_df = pd.DataFrame(all_features)
+n_total = len(labels)
+n_features = tda_train_df.shape[1]
+feature_names = list(tda_train_df.columns)
 
-print(f"TDA features extracted: {tda_features_df.shape}")
-print(f"  - Samples: {len(tda_features_df):,}")
-print(f"  - Features per sample: {tda_features_df.shape[1]}")
+tda_full_array = np.zeros((n_total, n_features))
+tda_full_array[train_indices] = tda_train_df.values
+tda_full_array[test_indices] = tda_test_df.values
 
-# Check for NaN values
-nan_count = tda_features_df.isna().sum().sum()
-if nan_count > 0:
-    print(f"\n⚠️  Found {nan_count} NaN values (from missing topological features)")
-    print(f"  Replacing NaN with 0 (no features = zero statistics)")
-    tda_features_df = tda_features_df.fillna(0)
-    print(f"  ✓ All NaN values replaced with 0")
+tda_features_df = pd.DataFrame(tda_full_array, columns=feature_names)
+
+print(f"✓ Full TDA feature matrix reconstructed: {tda_features_df.shape}")
+print(f"  - Train rows placed at positions: train_indices ({len(train_indices):,} rows)")
+print(f"  - Test rows placed at positions:  test_indices ({len(test_indices):,} rows)")
 print()
 
 # ==============================================================================
@@ -214,7 +261,6 @@ print("-" * 80)
 print("TDA Feature Summary:")
 print("-" * 80)
 
-# Count features per manifold and dimension
 manifolds = ["C2", "Network", "Physical"]
 dimensions = [0, 1, 2]
 
@@ -235,25 +281,36 @@ print("-" * 80)
 print("Saving TDA features...")
 print("-" * 80)
 
-# Save features
-tda_features_df.to_csv(f"{FEATURES_DIR}/tda_features.csv", index=False)
-print(f"✓ Saved: {FEATURES_DIR}/tda_features.csv")
-print(f"  Shape: {tda_features_df.shape}")
+# --- Per-split files (primary outputs for Script 07) ---
+train_labels = labels.values[train_indices]
+test_labels = labels.values[test_indices]
 
-# Save with labels for easy loading
+tda_train_with_labels = tda_train_df.copy()
+tda_train_with_labels["label"] = train_labels
+tda_train_with_labels.to_csv(f"{FEATURES_DIR}/tda_features_train.csv", index=False)
+print(f"✓ Saved: {FEATURES_DIR}/tda_features_train.csv  ({tda_train_df.shape})")
+
+tda_test_with_labels = tda_test_df.copy()
+tda_test_with_labels["label"] = test_labels
+tda_test_with_labels.to_csv(f"{FEATURES_DIR}/tda_features_test.csv", index=False)
+print(f"✓ Saved: {FEATURES_DIR}/tda_features_test.csv   ({tda_test_df.shape})")
+
+# --- Full-dataset reconstruction (for analysis / compatibility) ---
+tda_features_df.to_csv(f"{FEATURES_DIR}/tda_features.csv", index=False)
+print(f"✓ Saved: {FEATURES_DIR}/tda_features.csv  (full, original row order)")
+
 tda_with_labels = tda_features_df.copy()
 tda_with_labels["label"] = labels
 tda_with_labels.to_csv(f"{FEATURES_DIR}/tda_features_with_labels.csv", index=False)
 print(f"✓ Saved: {FEATURES_DIR}/tda_features_with_labels.csv")
 
 # Save feature names
-feature_names = list(tda_features_df.columns)
 with open(f"{FEATURES_DIR}/tda_feature_names.pkl", "wb") as f:
     pickle.dump(feature_names, f)
 print(f"✓ Saved: {FEATURES_DIR}/tda_feature_names.pkl")
 
 # ==============================================================================
-# CREATE COMBINED FEATURE SET
+# CREATE COMBINED FEATURE SET (Original + TDA)
 # ==============================================================================
 print("\n" + "-" * 80)
 print("Creating combined feature set (Original + TDA)...")
@@ -263,24 +320,39 @@ print("-" * 80)
 original_features = pd.read_csv(f"{OUTPUT_DIR}/original_features.csv")
 print(f"✓ Original features loaded: {original_features.shape}")
 
-# Combine
+# Combine (both are in full-dataset row order)
 combined_features = pd.concat([original_features, tda_features_df], axis=1)
 print(f"✓ Combined features created: {combined_features.shape}")
 print(f"  - Original features: {original_features.shape[1]}")
-print(f"  - TDA features: {tda_features_df.shape[1]}")
-print(f"  - Total features: {combined_features.shape[1]}")
+print(f"  - TDA features:      {tda_features_df.shape[1]}")
+print(f"  - Total features:    {combined_features.shape[1]}")
 
-# Save
+# Save full combined
 combined_features.to_csv(f"{FEATURES_DIR}/combined_features.csv", index=False)
-print(f"✓ Saved: {FEATURES_DIR}/combined_features.csv")
-
-# Save with labels
 combined_with_labels = combined_features.copy()
 combined_with_labels["label"] = labels
-combined_with_labels.to_csv(
-    f"{FEATURES_DIR}/combined_features_with_labels.csv", index=False
-)
+combined_with_labels.to_csv(f"{FEATURES_DIR}/combined_features_with_labels.csv", index=False)
+print(f"✓ Saved: {FEATURES_DIR}/combined_features.csv")
 print(f"✓ Saved: {FEATURES_DIR}/combined_features_with_labels.csv")
+
+# Save per-split combined files for Script 07
+original_arr = original_features.values
+
+combined_train = pd.DataFrame(
+    combined_features.values[train_indices],
+    columns=combined_features.columns,
+)
+combined_train["label"] = train_labels
+combined_train.to_csv(f"{FEATURES_DIR}/combined_features_train.csv", index=False)
+print(f"✓ Saved: {FEATURES_DIR}/combined_features_train.csv")
+
+combined_test = pd.DataFrame(
+    combined_features.values[test_indices],
+    columns=combined_features.columns,
+)
+combined_test["label"] = test_labels
+combined_test.to_csv(f"{FEATURES_DIR}/combined_features_test.csv", index=False)
+print(f"✓ Saved: {FEATURES_DIR}/combined_features_test.csv")
 
 # ==============================================================================
 # SUMMARY
@@ -295,11 +367,17 @@ print(f"  1. TDA-only features: {tda_features_df.shape[1]} features")
 print(f"  2. Combined (Original + TDA): {combined_features.shape[1]} features")
 
 print("\nFiles saved:")
-print(f"  - {FEATURES_DIR}/tda_features.csv")
-print(f"  - {FEATURES_DIR}/tda_features_with_labels.csv")
-print(f"  - {FEATURES_DIR}/combined_features.csv")
-print(f"  - {FEATURES_DIR}/combined_features_with_labels.csv")
-print(f"  - {FEATURES_DIR}/tda_feature_names.pkl")
+print(f"  PRIMARY (for Script 07, leak-free):")
+print(f"    - {FEATURES_DIR}/combined_features_train.csv  ({combined_train.shape[0]:,} rows)")
+print(f"    - {FEATURES_DIR}/combined_features_test.csv   ({combined_test.shape[0]:,} rows)")
+print(f"  SECONDARY (analysis / compatibility):")
+print(f"    - {FEATURES_DIR}/tda_features_train.csv")
+print(f"    - {FEATURES_DIR}/tda_features_test.csv")
+print(f"    - {FEATURES_DIR}/tda_features.csv")
+print(f"    - {FEATURES_DIR}/tda_features_with_labels.csv")
+print(f"    - {FEATURES_DIR}/combined_features.csv")
+print(f"    - {FEATURES_DIR}/combined_features_with_labels.csv")
+print(f"    - {FEATURES_DIR}/tda_feature_names.pkl")
 
 print("\nNext: Run 07_tda_enhanced_models.py (45-60 min)")
 print("=" * 80)

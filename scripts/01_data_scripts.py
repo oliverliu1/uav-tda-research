@@ -16,6 +16,7 @@ Date: April 2026
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 import os
 import pickle
 from datetime import datetime
@@ -219,13 +220,55 @@ physical_scaled = pd.DataFrame(physical_scaled, columns=PHYSICAL_FEATURES)
 print(f"  ✓ Physical manifold shape: {physical_scaled.shape}")
 
 # ==============================================================================
+# STEP 5: TRAIN/TEST SPLIT (80/20 stratified)
+# This split is performed HERE so that all downstream TDA computations
+# (Scripts 03-05) can use train/test data independently, preventing
+# data leakage from test neighborhoods into train TDA features.
+# ==============================================================================
+print("\n" + "-" * 80)
+print("Step 5: Train/Test Split (80/20 stratified)")
+print("-" * 80)
+
+RANDOM_STATE = 42
+all_indices = np.arange(len(labels))
+
+train_indices, test_indices = train_test_split(
+    all_indices,
+    test_size=0.2,
+    random_state=RANDOM_STATE,
+    stratify=labels,
+)
+
+print(f"✓ Split complete:")
+print(f"  - Train samples: {len(train_indices):,} ({len(train_indices)/len(labels)*100:.1f}%)")
+print(f"  - Test samples:  {len(test_indices):,} ({len(test_indices)/len(labels)*100:.1f}%)")
+print(f"  - Random state: {RANDOM_STATE}")
+
+# Verify stratification
+print(f"\nLabel distribution in splits:")
+labels_array = labels.values
+train_labels = labels_array[train_indices]
+test_labels = labels_array[test_indices]
+for label in np.unique(labels_array):
+    total_pct = (labels_array == label).mean() * 100
+    train_pct = (train_labels == label).mean() * 100
+    test_pct = (test_labels == label).mean() * 100
+    print(f"  {label}: total={total_pct:.1f}%, train={train_pct:.1f}%, test={test_pct:.1f}%")
+
+# Save indices
+np.save(f"{OUTPUT_DIR}/train_indices.npy", train_indices)
+np.save(f"{OUTPUT_DIR}/test_indices.npy", test_indices)
+print(f"\n✓ Saved: {OUTPUT_DIR}/train_indices.npy")
+print(f"✓ Saved: {OUTPUT_DIR}/test_indices.npy")
+
+# ==============================================================================
 # SAVE PREPROCESSED DATA
 # ==============================================================================
 print("\n" + "=" * 80)
 print("Saving preprocessed manifolds...")
 print("=" * 80)
 
-# Save each manifold separately
+# Save each manifold separately (full dataset — split is done via indices)
 c2_scaled.to_csv(f"{OUTPUT_DIR}/c2_manifold_scaled.csv", index=False)
 network_scaled.to_csv(f"{OUTPUT_DIR}/network_manifold_scaled.csv", index=False)
 physical_scaled.to_csv(f"{OUTPUT_DIR}/physical_manifold_scaled.csv", index=False)
@@ -277,5 +320,14 @@ print("\n" + "=" * 80)
 print(f"✓ DATA PREPARATION COMPLETE")
 print(f"End time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("=" * 80)
+print("\nOutputs created:")
+print(f"  - {OUTPUT_DIR}/train_indices.npy  ({len(train_indices):,} train samples)")
+print(f"  - {OUTPUT_DIR}/test_indices.npy   ({len(test_indices):,} test samples)")
+print(f"  - {OUTPUT_DIR}/c2_manifold_scaled.csv")
+print(f"  - {OUTPUT_DIR}/network_manifold_scaled.csv")
+print(f"  - {OUTPUT_DIR}/physical_manifold_scaled.csv")
+print(f"  - {OUTPUT_DIR}/labels.csv")
+print(f"  - {OUTPUT_DIR}/original_features.csv")
 print("\nNext step: Run 02_baseline_models.py to train baseline classifiers")
+print("  Then run 03-05 to compute TDA (will use train/test indices for leak-free computation)")
 print("=" * 80)
