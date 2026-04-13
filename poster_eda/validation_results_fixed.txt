@@ -1,0 +1,254 @@
+
+================================================================================
+UAV TDA PROJECT - COMPREHENSIVE VALIDATION CHECKS
+================================================================================
+
+================================================================================
+CHECK 1: CLASS DISTRIBUTION & PER-CLASS PERFORMANCE
+================================================================================
+
+CLASS DISTRIBUTION:
+----------------------------------------
+label
+Normal Traffic      26172
+Blackhole Attack    26110
+Wormhole Attack     26086
+Sybil Attack        24077
+Flooding Attack     19726
+Name: count, dtype: int64
+
+Percentages:
+label
+Normal Traffic      21.422432
+Blackhole Attack    21.371684
+Wormhole Attack     21.352039
+Sybil Attack        19.707623
+Flooding Attack     16.146221
+Name: proportion, dtype: float64
+
+✓ Class distribution reasonably balanced (Max: 21.4%, Min: 16.1%)
+
+--------------------------------------------------------------------------------
+CONFUSION MATRIX (Random Forest with TDA):
+--------------------------------------------------------------------------------
+                  Blackhole Attack  ...  Wormhole Attack
+Blackhole Attack              5039  ...              181
+Flooding Attack                  0  ...               38
+Normal Traffic                   1  ...              165
+Sybil Attack                     1  ...               53
+Wormhole Attack               1630  ...             3564
+
+[5 rows x 5 columns]
+
+--------------------------------------------------------------------------------
+PER-CLASS PERFORMANCE METRICS:
+--------------------------------------------------------------------------------
+
+Blackhole Attack:
+  Precision: 0.7554
+  Recall:    0.9650
+  F1-Score:  0.8474
+  Support:   5222
+
+Flooding Attack:
+  Precision: 0.9799
+  Recall:    0.9904
+  F1-Score:  0.9851
+  Support:   3945
+
+Normal Traffic:
+  Precision: 0.9955
+  Recall:    0.9683
+  F1-Score:  0.9817
+  Support:   5235
+
+Sybil Attack:
+  Precision: 1.0000
+  Recall:    0.9726
+  F1-Score:  0.9861
+  Support:   4816
+
+Wormhole Attack:
+  Precision: 0.8908
+  Recall:    0.6832
+  F1-Score:  0.7733
+  Support:   5217
+
+--------------------------------------------------------------------------------
+SUMMARY:
+  Average Precision: 0.9243
+  Average Recall:    0.9159
+  Average F1:        0.9147
+
+================================================================================
+CHECK 2: DATA LEAKAGE VERIFICATION
+================================================================================
+
+Metadata keys: ['manifold', 'library', 'n_train_samples', 'n_test_samples', 'n_neighbors', 'max_dimension', 'homology_dimensions', 'max_edge_length', 'features', 'computation_time_minutes', 'computation_date', 'approach', 'leakage_prevention']
+
+⚠️  WARNING: No train/test tracking found in metadata
+   This may indicate potential data leakage in neighborhood construction
+
+Feature dimensions:
+  Original features: (122171, 22)
+  TDA features: (122171, 72)
+  ✓ Feature counts match
+
+================================================================================
+CHECK 3: BASELINE MODEL HYPERPARAMETERS
+================================================================================
+
+Random Forest:
+  n_estimators: 200
+  max_depth: 20
+  min_samples_split: 5
+  class_weight: balanced
+
+SVM:
+  kernel: rbf
+  C: 1.0
+  gamma: scale
+  class_weight: balanced
+
+Logistic Regression:
+  C: 1.0
+  penalty: l2
+  solver: lbfgs
+  class_weight: balanced
+⚠️  SVM: Using default hyperparameters (not tuned)
+
+--------------------------------------------------------------------------------
+FEATURE SCALING CHECK:
+--------------------------------------------------------------------------------
+
+Original features statistics (first 5 features):
+      SrcAddr_octet  SrcPort_binary  ...  DstPort_binary  FlowDuration/s
+mean      61.077637        0.248275  ...        0.248275      696.714475
+std       54.262747        0.432014  ...        0.432014      780.052068
+min        1.000000        0.000000  ...        0.000000        0.000076
+max      189.000000        1.000000  ...        1.000000    10591.800000
+
+[4 rows x 5 columns]
+
+================================================================================
+CHECK 4: TDA FEATURE IMPORTANCE ANALYSIS
+================================================================================
+
+TOP 20 FEATURES:
+--------------------------------------------------------------------------------
+                     feature  importance             type
+              PacketDropRate    0.088452 Original Feature
+                TxByteRate/s    0.060355 Original Feature
+              TxPacketRate/s    0.056432 Original Feature
+               SrcAddr_octet    0.055487 Original Feature
+             Throughput/Kbps    0.038105 Original Feature
+         Physical_H0_entropy    0.031985      TDA Feature
+              RxPacketRate/s    0.031238 Original Feature
+               C2_H0_entropy    0.030874      TDA Feature
+     C2_H0_total_persistence    0.028613      TDA Feature
+            C2_H1_mean_birth    0.027432      TDA Feature
+      C2_H0_mean_persistence    0.024076      TDA Feature
+            C2_H1_mean_death    0.023897      TDA Feature
+      C2_H1_mean_persistence    0.023819      TDA Feature
+       C2_H1_std_persistence    0.022841      TDA Feature
+                 LostPackets    0.022723 Original Feature
+                RxByteRate/s    0.022681 Original Feature
+       C2_H0_std_persistence    0.021292      TDA Feature
+              FlowDuration/s    0.021215 Original Feature
+Physical_H0_mean_persistence    0.020747      TDA Feature
+              MeanPacketSize    0.020288 Original Feature
+
+--------------------------------------------------------------------------------
+FEATURE TYPE BREAKDOWN:
+--------------------------------------------------------------------------------
+TDA features in top 20: 0
+Original features in top 20: 20
+
+C2 manifold features in top 20: 0
+Network manifold features in top 20: 0
+Physical manifold features in top 20: 0
+
+H0 (components) features in top 20: 0
+H1 (loops) features in top 20: 0
+H2 (voids) features in top 20: 0
+
+--------------------------------------------------------------------------------
+TOP 10 TDA FEATURES (for interpretation):
+--------------------------------------------------------------------------------
+Empty DataFrame
+Columns: [feature, importance, type]
+Index: []
+
+================================================================================
+CHECK 5: WASSERSTEIN METHODOLOGY VERIFICATION
+================================================================================
+
+Baseline metadata keys: ['baseline_sample_size', 'baseline_indices', 'max_edge_length', 'max_dimension', 'computation_date', 'manifolds']
+
+⚠️  Sample indices not tracked
+
+⚠️  Selection method not documented
+
+--------------------------------------------------------------------------------
+DETECTION THRESHOLD ANALYSIS:
+--------------------------------------------------------------------------------
+
+⚠️  ACTION REQUIRED: Verify if 3σ threshold was fixed a priori or tuned
+    Check script: scripts/5W_wasserstein_detection.py
+
+================================================================================
+CHECK 6: MULTI-MANIFOLD COMBINATION STRATEGY
+================================================================================
+
+Detection results columns:
+['flow_id', 'label', 'c2_distance', 'network_distance', 'physical_distance', 'c2_zscore', 'network_zscore', 'physical_zscore', 'c2_anomaly', 'network_anomaly', 'physical_anomaly', 'anomaly_detected', 'pattern']
+
+--------------------------------------------------------------------------------
+PER-ATTACK AUC BREAKDOWN:
+--------------------------------------------------------------------------------
+     Attack Type  AUC (Overall)  AUC (C2)  AUC (Network)  AUC (Physical)
+    Sybil Attack       0.711560  0.920692       0.843108        0.654525
+Blackhole Attack       0.383523  0.232240       0.397590        0.489521
+ Wormhole Attack       0.634067  0.497181       0.446551        0.596446
+ Flooding Attack       0.658940  0.730218       0.438674        0.385181
+
+================================================================================
+CHECK 7: COMPUTATIONAL PERFORMANCE
+================================================================================
+
+Processing statistics:
+  Total flows: 122,171
+  Runtime (Script 3W): 53 min = 3,180 sec
+  Processing rate: 38.4 samples/sec
+
+Neighborhood sizes:
+  Supervised (100-pt neighborhoods): 100 points
+  Unsupervised (50-pt neighborhoods): 50 points
+  Ratio: 2.0x more points
+
+⚠️  ACTION REQUIRED: Document why 50-pt vs 100-pt neighborhoods
+    Is this a computational constraint or design choice?
+
+================================================================================
+VALIDATION SUMMARY
+================================================================================
+
+✓ CHECKS COMPLETED:
+  [1] Class distribution & per-class performance
+  [2] Data leakage verification
+  [3] Baseline hyperparameters
+  [4] TDA feature importance
+  [5] Wasserstein baseline construction
+  [6] Multi-manifold combination logic
+  [7] Computational performance
+
+⚠️  ACTION ITEMS TO VERIFY MANUALLY:
+  [ ] Check scripts/5W_wasserstein_detection.py for threshold selection
+  [ ] Review neighborhood construction for train/test separation
+  [ ] Document justification for 50-pt vs 100-pt neighborhoods
+  [ ] Verify no cross-validation was performed (or add results)
+
+================================================================================
+END OF VALIDATION CHECKS
+================================================================================
+
