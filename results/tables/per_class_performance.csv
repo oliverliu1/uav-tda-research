@@ -1,0 +1,6 @@
+Attack Type,Precision,Recall,F1-Score,Support
+Blackhole Attack,0,0,0,0
+Flooding Attack,0,0,0,0
+Normal Traffic,0,0,0,0
+Sybil Attack,0,0,0,0
+Wormhole Attack,0,0,0,0
