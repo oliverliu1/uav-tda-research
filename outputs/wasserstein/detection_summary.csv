@@ -1,0 +1,6 @@
+Attack Type,Total Samples,Detected,Detection Rate (%),C2 Flags,Network Flags,Physical Flags
+Sybil Attack,24077,170,0.7060680317315281,49,0,121
+Blackhole Attack,26110,5677,21.742627345844504,0,1868,5563
+Wormhole Attack,26086,9511,36.460170206240896,103,2629,9028
+Flooding Attack,19726,3650,18.503497921524893,0,1417,2703
+Normal Traffic,26172,482,1.841662845789393,0,0,482
