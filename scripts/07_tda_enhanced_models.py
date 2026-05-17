@@ -17,7 +17,7 @@ import numpy as np
 import pickle
 import os
 from datetime import datetime
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
@@ -105,11 +105,6 @@ X_test_scaled = scaler.transform(X_test)
 print(f"✓ Features scaled using StandardScaler")
 print()
 
-# Encode labels
-le = LabelEncoder()
-y_train_encoded = le.fit_transform(y_train)
-y_test_encoded = le.transform(y_test)
-
 # ==============================================================================
 # TRAIN MODELS
 # ==============================================================================
@@ -142,17 +137,17 @@ lr_model = LogisticRegression(
 )
 
 print("Training...")
-lr_model.fit(X_train_scaled, y_train_encoded)
+lr_model.fit(X_train_scaled, y_train)
 
 # Predictions
 y_pred_lr = lr_model.predict(X_test_scaled)
 y_pred_proba_lr = lr_model.predict_proba(X_test_scaled)
 
 # Metrics
-acc_lr = accuracy_score(y_test_encoded, y_pred_lr)
-f1_lr = f1_score(y_test_encoded, y_pred_lr, average="weighted")
+acc_lr = accuracy_score(y_test, y_pred_lr)
+f1_lr = f1_score(y_test, y_pred_lr, average="weighted")
 auc_lr = roc_auc_score(
-    y_test_encoded, y_pred_proba_lr, multi_class="ovr", average="weighted"
+    y_test, y_pred_proba_lr, multi_class="ovr", average="weighted"
 )
 
 elapsed = (datetime.now() - start_time).total_seconds() / 60
@@ -196,17 +191,17 @@ rf_model = RandomForestClassifier(
 )
 
 print("Training...")
-rf_model.fit(X_train_scaled, y_train_encoded)
+rf_model.fit(X_train_scaled, y_train)
 
 # Predictions
 y_pred_rf = rf_model.predict(X_test_scaled)
 y_pred_proba_rf = rf_model.predict_proba(X_test_scaled)
 
 # Metrics
-acc_rf = accuracy_score(y_test_encoded, y_pred_rf)
-f1_rf = f1_score(y_test_encoded, y_pred_rf, average="weighted")
+acc_rf = accuracy_score(y_test, y_pred_rf)
+f1_rf = f1_score(y_test, y_pred_rf, average="weighted")
 auc_rf = roc_auc_score(
-    y_test_encoded, y_pred_proba_rf, multi_class="ovr", average="weighted"
+    y_test, y_pred_proba_rf, multi_class="ovr", average="weighted"
 )
 
 elapsed = (datetime.now() - start_time).total_seconds() / 60
@@ -264,17 +259,17 @@ svm_model = SVC(
 )
 
 print("Training...")
-svm_model.fit(X_train_scaled, y_train_encoded)
+svm_model.fit(X_train_scaled, y_train)
 
 # Predictions
 y_pred_svm = svm_model.predict(X_test_scaled)
 y_pred_proba_svm = svm_model.predict_proba(X_test_scaled)
 
 # Metrics
-acc_svm = accuracy_score(y_test_encoded, y_pred_svm)
-f1_svm = f1_score(y_test_encoded, y_pred_svm, average="weighted")
+acc_svm = accuracy_score(y_test, y_pred_svm)
+f1_svm = f1_score(y_test, y_pred_svm, average="weighted")
 auc_svm = roc_auc_score(
-    y_test_encoded, y_pred_proba_svm, multi_class="ovr", average="weighted"
+    y_test, y_pred_proba_svm, multi_class="ovr", average="weighted"
 )
 
 elapsed = (datetime.now() - start_time).total_seconds() / 60
@@ -298,13 +293,12 @@ results["SVM (TDA)"] = {
 with open(f"{MODELS_DIR}/tda_svm.pkl", "wb") as f:
     pickle.dump(svm_model, f)
 
-# Save scaler and label encoder. Models predict on scaled+encoded inputs, so any
-# downstream code MUST apply these transformers before calling predict().
+# Save the scaler. Models predict on scaled inputs, so any downstream code
+# MUST apply this scaler before calling predict(). Labels stay as strings —
+# sklearn handles them natively, matching Script 02.
 with open(f"{MODELS_DIR}/tda_scaler.pkl", "wb") as f:
     pickle.dump(scaler, f)
-with open(f"{MODELS_DIR}/tda_label_encoder.pkl", "wb") as f:
-    pickle.dump(le, f)
-print(f"✓ Saved tda_scaler.pkl and tda_label_encoder.pkl")
+print(f"✓ Saved tda_scaler.pkl")
 
 total_training_time = (datetime.now() - start_time_all).total_seconds() / 60
 
@@ -349,25 +343,25 @@ print()
 
 # Classification report
 y_pred_best = best_model["predictions"]
-class_names = le.classes_
+class_names = np.unique(y_test)
 
 print("Per-class metrics:")
 print(
     classification_report(
-        y_test_encoded, y_pred_best, target_names=class_names, digits=4
+        y_test, y_pred_best, target_names=class_names, digits=4
     )
 )
 
 # Save classification report
 report_dict = classification_report(
-    y_test_encoded, y_pred_best, target_names=class_names, output_dict=True
+    y_test, y_pred_best, target_names=class_names, output_dict=True
 )
 report_df = pd.DataFrame(report_dict).transpose()
 report_df.to_csv(f"{TABLES_DIR}/tda_classification_report.csv")
 print(f"✓ Saved: {TABLES_DIR}/tda_classification_report.csv")
 
 # Confusion matrix
-cm = confusion_matrix(y_test_encoded, y_pred_best)
+cm = confusion_matrix(y_test, y_pred_best)
 cm_df = pd.DataFrame(cm, index=class_names, columns=class_names)
 cm_df.to_csv(
     f"{TABLES_DIR}/tda_confusion_matrix_{best_model_name.replace(' ', '_').lower()}.csv"

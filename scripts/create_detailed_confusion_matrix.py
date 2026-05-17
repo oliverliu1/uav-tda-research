@@ -15,17 +15,15 @@ import seaborn as sns
 from sklearn.metrics import confusion_matrix
 import pickle
 
-print("Loading model, transformers, and canonical test split...")
+print("Loading model, scaler, and canonical test split...")
 
-# Load the trained Random Forest model along with the scaler and label encoder
-# that Script 07 used to train it. The model expects scaled inputs and emits
-# integer-encoded predictions, so we MUST apply the same transformers here.
+# Load the trained Random Forest model along with the scaler that Script 07
+# used to train it. The model expects scaled inputs; labels are strings and
+# need no decoding.
 with open("results/models/tda_random_forest.pkl", "rb") as f:
     rf_model = pickle.load(f)
 with open("results/models/tda_scaler.pkl", "rb") as f:
     scaler = pickle.load(f)
-with open("results/models/tda_label_encoder.pkl", "rb") as f:
-    le = pickle.load(f)
 
 # Load the canonical test split produced by Script 06. Do NOT re-run
 # train_test_split — that path is what made this script silently mis-align
@@ -35,7 +33,7 @@ X_test = test_df.drop("label", axis=1)
 y_test = test_df["label"]
 
 X_test_scaled = scaler.transform(X_test)
-y_pred = le.inverse_transform(rf_model.predict(X_test_scaled))
+y_pred = rf_model.predict(X_test_scaled)
 
 print(f"✓ Loaded {len(y_test):,} test samples")
 
