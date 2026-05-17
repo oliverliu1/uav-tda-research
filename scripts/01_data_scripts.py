@@ -289,8 +289,10 @@ with open(f"{OUTPUT_DIR}/scaler_physical.pkl", "wb") as f:
 
 print(f"✓ Saved scalers as pickle files")
 
-# Save original feature data for baseline models (before scaling, but with encoding)
-original_features = pd.concat([c2_data, network_data, physical_data], axis=1)
+# Save original feature data for baseline models (before scaling, but with encoding).
+# Physical manifold features (MeanDelay/s, AverageHopCount) are a subset of Network,
+# so we exclude physical_data here to avoid duplicate columns in the combined matrix.
+original_features = pd.concat([c2_data, network_data], axis=1)
 original_features.to_csv(f"{OUTPUT_DIR}/original_features.csv", index=False)
 print(f"✓ Saved: {OUTPUT_DIR}/original_features.csv (for baseline models)")
 

@@ -15,41 +15,27 @@ import seaborn as sns
 from sklearn.metrics import confusion_matrix
 import pickle
 
-print("Loading model and test data...")
+print("Loading model, transformers, and canonical test split...")
 
-# Load the trained Random Forest model
+# Load the trained Random Forest model along with the scaler and label encoder
+# that Script 07 used to train it. The model expects scaled inputs and emits
+# integer-encoded predictions, so we MUST apply the same transformers here.
 with open("results/models/tda_random_forest.pkl", "rb") as f:
     rf_model = pickle.load(f)
+with open("results/models/tda_scaler.pkl", "rb") as f:
+    scaler = pickle.load(f)
+with open("results/models/tda_label_encoder.pkl", "rb") as f:
+    le = pickle.load(f)
 
-# Load test data
-import joblib
-from sklearn.preprocessing import LabelEncoder
+# Load the canonical test split produced by Script 06. Do NOT re-run
+# train_test_split — that path is what made this script silently mis-align
+# predictions with labels (Issue 2: all-zero per_class_performance.csv).
+test_df = pd.read_csv("outputs/tda_features/combined_features_test.csv")
+X_test = test_df.drop("label", axis=1)
+y_test = test_df["label"]
 
-# Load combined features
-combined_features = pd.read_csv(
-    "outputs/tda_features/combined_features_with_labels.csv"
-)
-
-# Recreate train-test split (same random_state as Script 7)
-from sklearn.model_selection import train_test_split
-
-X = combined_features.drop("label", axis=1)
-y = combined_features["label"]
-
-# Split (same as Script 7)
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
-)
-
-# Scale test data (load scaler or recreate)
-from sklearn.preprocessing import StandardScaler
-
-scaler = StandardScaler()
-scaler.fit(X_train)
 X_test_scaled = scaler.transform(X_test)
-
-# Generate predictions
-y_pred = rf_model.predict(X_test_scaled)
+y_pred = le.inverse_transform(rf_model.predict(X_test_scaled))
 
 print(f"✓ Loaded {len(y_test):,} test samples")
 
