@@ -33,7 +33,7 @@ from sklearn.metrics import (
     confusion_matrix,
     classification_report,
 )
-from sklearn.preprocessing import label_binarize
+from sklearn.preprocessing import label_binarize, StandardScaler
 import pickle
 import os
 from datetime import datetime
@@ -103,6 +103,24 @@ print("\nTest set:")
 test_dist = y_test.value_counts()
 for label, count in test_dist.items():
     print(f"  - {label}: {count:,} ({count/len(y_test)*100:.2f}%)")
+
+# ==============================================================================
+# FEATURE SCALING
+# Fit on train only, transform both. Matches the scaling protocol in Script 07
+# so baseline vs TDA-enhanced comparisons are on the same feature space.
+# ==============================================================================
+print("\n" + "-" * 80)
+print("Scaling features (StandardScaler, fit on train)...")
+print("-" * 80)
+
+scaler = StandardScaler()
+X_train = pd.DataFrame(
+    scaler.fit_transform(X_train), columns=X_train.columns, index=X_train.index
+)
+X_test = pd.DataFrame(
+    scaler.transform(X_test), columns=X_test.columns, index=X_test.index
+)
+print("✓ Features scaled")
 
 # ==============================================================================
 # MODEL DEFINITIONS
@@ -204,6 +222,12 @@ for name, model in trained_models.items():
     with open(f"{RESULTS_DIR}/models/baseline_{model_filename}.pkl", "wb") as f:
         pickle.dump(model, f)
     print(f"  ✓ Saved: baseline_{model_filename}.pkl")
+
+# Save the scaler. Models were trained on scaled features, so any downstream
+# code that calls model.predict() on raw inputs MUST apply this scaler first.
+with open(f"{RESULTS_DIR}/models/baseline_scaler.pkl", "wb") as f:
+    pickle.dump(scaler, f)
+print(f"  ✓ Saved: baseline_scaler.pkl")
 
 # ==============================================================================
 # TEST SET EVALUATION

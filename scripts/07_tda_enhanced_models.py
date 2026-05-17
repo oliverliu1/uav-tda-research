@@ -132,7 +132,14 @@ print("-" * 80)
 
 start_time = datetime.now()
 
-lr_model = LogisticRegression(max_iter=1000, random_state=RANDOM_STATE, n_jobs=-1)
+lr_model = LogisticRegression(
+    max_iter=1000,
+    random_state=RANDOM_STATE,
+    solver="lbfgs",
+    multi_class="multinomial",
+    class_weight="balanced",
+    n_jobs=-1,
+)
 
 print("Training...")
 lr_model.fit(X_train_scaled, y_train_encoded)
@@ -179,7 +186,13 @@ print("-" * 80)
 start_time = datetime.now()
 
 rf_model = RandomForestClassifier(
-    n_estimators=200, random_state=RANDOM_STATE, n_jobs=-1
+    n_estimators=200,
+    random_state=RANDOM_STATE,
+    max_depth=20,
+    min_samples_split=5,
+    min_samples_leaf=2,
+    class_weight="balanced",
+    n_jobs=-1,
 )
 
 print("Training...")
@@ -240,7 +253,15 @@ print("-" * 80)
 
 start_time = datetime.now()
 
-svm_model = SVC(kernel="rbf", random_state=RANDOM_STATE, probability=True)
+svm_model = SVC(
+    kernel="rbf",
+    C=1.0,
+    gamma="scale",
+    random_state=RANDOM_STATE,
+    class_weight="balanced",
+    probability=True,
+    cache_size=1000,
+)
 
 print("Training...")
 svm_model.fit(X_train_scaled, y_train_encoded)
@@ -276,6 +297,14 @@ results["SVM (TDA)"] = {
 # Save model
 with open(f"{MODELS_DIR}/tda_svm.pkl", "wb") as f:
     pickle.dump(svm_model, f)
+
+# Save scaler and label encoder. Models predict on scaled+encoded inputs, so any
+# downstream code MUST apply these transformers before calling predict().
+with open(f"{MODELS_DIR}/tda_scaler.pkl", "wb") as f:
+    pickle.dump(scaler, f)
+with open(f"{MODELS_DIR}/tda_label_encoder.pkl", "wb") as f:
+    pickle.dump(le, f)
+print(f"✓ Saved tda_scaler.pkl and tda_label_encoder.pkl")
 
 total_training_time = (datetime.now() - start_time_all).total_seconds() / 60
 
