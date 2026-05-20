@@ -4,6 +4,12 @@ outputs/persistence_diagrams/*.pkl
 outputs/tda_features/
 data/*.csv
 
+# Derived prep artifacts (reproducible from seed=42 + data/UAVIDS-2025.csv)
+outputs/*.csv
+outputs/*.npy
+outputs/scalers.pkl
+outputs/wasserstein/
+
 # Model files
 results/models/*.pkl
 
