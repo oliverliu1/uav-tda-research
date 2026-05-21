@@ -507,7 +507,7 @@ def compute_reference_clouds(reference_idx) -> dict:
 
 
 def compute_max_edge_lengths(reference_clouds: dict) -> dict:
-    """Return {manifold: 95th-percentile pairwise distance within its reference cloud}."""
+    """Return {manifold: MAX_EDGE_PERCENTILE-th pairwise distance within its reference cloud}."""
     import numpy as np
     from scipy.spatial.distance import pdist
 
@@ -1125,12 +1125,20 @@ def evaluate_model(model, X_test, y_test) -> tuple:
 
 
 def validate_supervised(y_pred, y_test, metrics: dict) -> None:
-    """Raise on length mismatch, missing predicted classes, or AUC out of [0, 1]."""
+    """Raise on length mismatch or AUC out of [0, 1]; warn on zero-support classes.
+
+    Zero-support is downgraded from a hard error: a model that fails to predict
+    one of the rarer classes on a single seed is informative but not a reason
+    to crash the whole pipeline. The warning still surfaces in logs so audits
+    can spot persistent misses across seeds.
+    """
     if len(y_pred) != len(y_test):
         raise AssertionError(f"len(y_pred)={len(y_pred)} != len(y_test)={len(y_test)}")
     missing = set(EXPECTED_CLASSES) - set(map(str, y_pred))
     if missing:
-        raise AssertionError(f"classes predicted with zero support: {sorted(missing)}")
+        logging.getLogger("pipeline.supervised").warning(
+            "classes predicted with zero support: %s", sorted(missing),
+        )
     for key, val in metrics.items():
         if "auc" in key and val == val and not (0.0 <= val <= 1.0):  # NaN-safe
             raise AssertionError(f"{key}={val} outside [0, 1]")
@@ -1426,8 +1434,16 @@ def compute_baseline_barcodes(max_edge_lengths: dict, reference_indices) -> dict
 
 
 def _wasserstein_for_flow(diagram, baseline_per_dim: dict, max_edge: float, max_hom_dim: int) -> float:
-    """Per-flow Wasserstein-2 distance to baseline (summed across H-dims)."""
-    from gudhi.hera import wasserstein_distance as wdist
+    """Per-flow Wasserstein-2 distance to baseline (summed across H-dims).
+
+    Runs inside a joblib worker, so the backend is imported here (try Hera
+    first, fall back to gudhi.wasserstein). This mirrors get_wasserstein_backend
+    so the worker survives environments without Hera.
+    """
+    try:
+        from gudhi.hera import wasserstein_distance as wdist
+    except ImportError:
+        from gudhi.wasserstein import wasserstein_distance as wdist
 
     total = 0.0
     for k in range(max_hom_dim + 1):
@@ -1518,6 +1534,24 @@ def apply_inference_rule(rule: dict, flags: dict) -> list:
     net = flags["network"].astype(int).tolist()
     phy = flags["physical"].astype(int).tolist()
     return [pattern_to_class.get((c, n, p), default) for c, n, p in zip(c2, net, phy)]
+
+
+def fraction_unmapped(rule: dict, flags: dict) -> float:
+    """Return the fraction of flows whose flag pattern has no class in the rule.
+
+    Flows in this set get bucketed into the 'Normal Traffic' default by
+    apply_inference_rule; the rate is reported alongside accuracy so a
+    reviewer can tell how often the rule actually fired vs fell through.
+    """
+    valid_patterns = set(rule.values())
+    c2 = flags["c2"].astype(int).tolist()
+    net = flags["network"].astype(int).tolist()
+    phy = flags["physical"].astype(int).tolist()
+    patterns = list(zip(c2, net, phy))
+    if not patterns:
+        return 0.0
+    n_default = sum(1 for p in patterns if p not in valid_patterns)
+    return n_default / len(patterns)
 
 
 def build_distances_frame(
@@ -1785,6 +1819,9 @@ def cmd_unsupervised(args: argparse.Namespace) -> None:
     overall = compute_overall_metrics(
         distances_by_split["test"], predicted_by_split["test"], test_labels,
     )
+    overall["unmapped_pattern_fraction_test"] = fraction_unmapped(
+        rule, flags_by_split["test"],
+    )
     log.info("test overall: %s", overall)
     save_unsupervised_tables(distances_df, per_class_auc, overall, rule)
     produce_unsupervised_plots(distances_df)
@@ -1865,12 +1902,19 @@ def build_final_unsupervised(per_class_auc, overall) -> "pandas.DataFrame":
     pivot = per_class_auc.pivot(index="attack_class", columns="manifold", values="auc")
     pivot = pivot.reset_index()
     pivot.columns.name = None
+    summary_fields = {
+        "binary_normal_vs_attack_auc": float(overall["binary_normal_vs_attack_auc"].iloc[0]),
+        "multiclass_inference_accuracy": float(overall["multiclass_inference_accuracy"].iloc[0]),
+    }
+    if "unmapped_pattern_fraction_test" in overall.columns:
+        summary_fields["unmapped_pattern_fraction_test"] = float(
+            overall["unmapped_pattern_fraction_test"].iloc[0]
+        )
     overall_row = pd.DataFrame(
         [{
             "attack_class": "<overall>",
             **{m: float("nan") for m in MANIFOLDS},
-            "binary_normal_vs_attack_auc": float(overall["binary_normal_vs_attack_auc"].iloc[0]),
-            "multiclass_inference_accuracy": float(overall["multiclass_inference_accuracy"].iloc[0]),
+            **summary_fields,
         }]
     )
     return pd.concat([pivot, overall_row], ignore_index=True)
@@ -1912,28 +1956,38 @@ def run_ablation_one_setting(label: str, drop_cols: list) -> list:
     return rows
 
 
-def run_manifold_ablation() -> "pandas.DataFrame":
-    """Drop each manifold's contribution from `combined`; refit RF; report deltas."""
+def run_ablation_with_baseline(ablations: dict) -> "pandas.DataFrame":
+    """Run a no-ablation reference (full `combined`) + each ablation setting.
+
+    The reference cell uses the same fixed RF hyperparameters (n_estimators=300,
+    max_depth=None) as the ablation cells. This makes deltas directly comparable
+    without re-tuning per ablation — and disambiguates "feature group matters"
+    from "we just didn't tune for this subset".
+    """
     import pandas as pd
 
-    combined_cols = list(load_feature_split("combined", "train").columns)
-    rows = []
-    for manifold in MANIFOLDS:
-        drop_cols = columns_for_manifold(combined_cols, manifold)
-        rows.extend(run_ablation_one_setting(f"drop_{manifold}", drop_cols))
+    rows = run_ablation_one_setting("no_ablation", [])
+    for label, drop_cols in ablations.items():
+        rows.extend(run_ablation_one_setting(label, drop_cols))
     return pd.DataFrame(rows)
+
+
+def run_manifold_ablation() -> "pandas.DataFrame":
+    """Drop each manifold's contribution from `combined`; refit RF; report deltas."""
+    combined_cols = list(load_feature_split("combined", "train").columns)
+    ablations = {
+        f"drop_{manifold}": columns_for_manifold(combined_cols, manifold)
+        for manifold in MANIFOLDS
+    }
+    return run_ablation_with_baseline(ablations)
 
 
 def run_feature_group_ablation() -> "pandas.DataFrame":
     """Drop each feature group (original / summary / images) from `combined`; refit RF."""
-    import pandas as pd
-
     combined_cols = list(load_feature_split("combined", "train").columns)
     classified = classify_columns(combined_cols)
-    rows = []
-    for group in ("original", "summary", "images"):
-        rows.extend(run_ablation_one_setting(f"drop_{group}", classified[group]))
-    return pd.DataFrame(rows)
+    ablations = {f"drop_{group}": classified[group] for group in ("original", "summary", "images")}
+    return run_ablation_with_baseline(ablations)
 
 
 def summarize_ablation(df) -> "pandas.DataFrame":
@@ -2098,9 +2152,12 @@ def log_final_summary(
     log.info("Unsupervised:")
     for _, row in final_unsup.iterrows():
         if row["attack_class"] == "<overall>":
+            unmapped = row.get("unmapped_pattern_fraction_test", float("nan"))
             log.info(
-                "  overall   binary AUC=%.4f   inference acc=%.4f",
-                row["binary_normal_vs_attack_auc"], row["multiclass_inference_accuracy"],
+                "  overall   binary AUC=%.4f   inference acc=%.4f   unmapped=%.4f",
+                row["binary_normal_vs_attack_auc"],
+                row["multiclass_inference_accuracy"],
+                unmapped,
             )
         else:
             log.info(
@@ -2191,7 +2248,10 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "--debug",
         action="store_true",
-        help=f"Sample only the first {DEBUG_SAMPLE_ROWS} rows of the dataset.",
+        help=(
+            f"Use a {DEBUG_SAMPLE_ROWS}-row stratified head sample of the dataset "
+            "(per-class head, deterministic — not a literal head of the CSV)."
+        ),
     )
     common.add_argument(
         "-v", "--verbose",
