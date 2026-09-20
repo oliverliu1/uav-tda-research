@@ -153,6 +153,63 @@ def assert_diagram_pkls_equal(a: Path, b: Path) -> None:
         )
 
 
+def _clamped_dim_slice(diagram: "np.ndarray", dim: int, max_edge: float) -> "np.ndarray":
+    """(birth, death) rows of one H-dim; inf deaths clamped to max_edge (pipeline convention)."""
+    import numpy as np
+    d = np.asarray(diagram)
+    if d.size == 0:
+        return np.empty((0, 2))
+    bd = d[d[:, 0] == dim][:, 1:3].copy()
+    bd[~np.isfinite(bd[:, 1]), 1] = max_edge
+    return bd
+
+
+def assert_diagram_pkls_statistically_equal(
+    a, b, max_hom_dim: int, max_edge: float,
+    sample: int = 25, gates: dict = None, seed: int = 0,
+):
+    """Sparse-Rips-tolerant diagram equivalence (regression guard, NOT primary
+    proof of port fidelity — see the Task-4 ruling: gudhi sparse Rips is
+    nondeterministic across processes, so bar-exact equality is unattainable
+    for c2/network by construction; port fidelity rests on the verbatim-port
+    review, exact upstream/physical comparisons, and the in-process probe).
+
+    Checks: same diagram count; for `sample` seeded-random diagrams, per H-dim:
+    bar-count delta <= gates["count_delta"], total-persistence relative delta
+    <= gates["pers_rel"], and exact-hera W2(a_i, b_i) <= gates["w2"].
+    gates=None → CALIBRATION MODE: assert nothing beyond diagram count; collect
+    and return {"max_count_delta", "max_pers_rel", "max_w2"} over all sampled
+    diagrams × dims so the caller can derive gates.
+    """
+    import pickle
+    import numpy as np
+    from pathlib import Path
+    from gudhi.hera import wasserstein_distance
+    A = pickle.loads(Path(a).read_bytes())
+    B = pickle.loads(Path(b).read_bytes())
+    assert len(A) == len(B), (a, len(A), len(B))
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(A), size=min(sample, len(A)), replace=False)
+    observed = {"max_count_delta": 0, "max_pers_rel": 0.0, "max_w2": 0.0}
+    for i in idx:
+        for k in range(max_hom_dim + 1):
+            xa = _clamped_dim_slice(A[i], k, max_edge)
+            xb = _clamped_dim_slice(B[i], k, max_edge)
+            count_delta = abs(len(xa) - len(xb))
+            ta = float((xa[:, 1] - xa[:, 0]).sum()) if len(xa) else 0.0
+            tb = float((xb[:, 1] - xb[:, 0]).sum()) if len(xb) else 0.0
+            pers_rel = abs(ta - tb) / max(ta, tb, 1e-9)
+            w2 = float(wasserstein_distance(xa, xb, order=2.0, internal_p=2.0))
+            observed["max_count_delta"] = max(observed["max_count_delta"], count_delta)
+            observed["max_pers_rel"] = max(observed["max_pers_rel"], pers_rel)
+            observed["max_w2"] = max(observed["max_w2"], w2)
+            if gates is not None:
+                assert count_delta <= gates["count_delta"], (a, i, k, count_delta, gates)
+                assert pers_rel <= gates["pers_rel"], (a, i, k, ta, tb, pers_rel, gates)
+                assert w2 <= gates["w2"], (a, i, k, w2, gates)
+    return observed
+
+
 def _floats_close(x: object, y: object, rtol: float) -> bool:
     return abs(x - y) <= rtol * max(abs(x), abs(y), 1e-12)
 
