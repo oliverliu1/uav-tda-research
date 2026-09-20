@@ -63,3 +63,6 @@ package-lock.json
 # Large output/backup directories
 poster_eda/outputs_backup_with_leakage/
 poster_eda/results_backup_with_leakage/
+
+# Hermetic monolith test-harness cache (tests/monolith_harness.py)
+.cache/
