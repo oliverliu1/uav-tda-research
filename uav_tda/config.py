@@ -36,6 +36,15 @@ MAX_HOM_DIM = {"c2": 2, "network": 2, "physical": 1}
 SPARSE_RIPS_EPSILON = {"c2": 0.5, "network": 0.5, "physical": None}
 THRESHOLD_PERCENTILE = 95
 
+# Persistence images.
+PI_RESOLUTION = (20, 20)
+
+# Names of the eight summary statistics extracted per (manifold, dim).
+SUMMARY_STAT_NAMES = (
+    "count", "mean_persistence", "std_persistence", "max_persistence",
+    "total_persistence", "mean_birth", "mean_death", "persistence_entropy",
+)
+
 TRAIN_FRAC = 0.70
 VAL_FRAC = 0.15
 TEST_FRAC = 0.15

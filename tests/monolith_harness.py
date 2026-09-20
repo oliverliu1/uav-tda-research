@@ -105,6 +105,20 @@ def ensure_debug_phase(cache_root: Path, repo_root: Path, phase: str) -> Path:
     return ws
 
 
+def stage_oracle(oracle_ws, ws, include=("outputs",)):
+    """Copy oracle workspace subtrees into a package Workspace root so a phase
+    under test runs on IDENTICAL inputs to the monolith's own run (Task-4
+    ruling: quarantines sparse-Rips cross-process nondeterminism)."""
+    import shutil
+    from pathlib import Path
+    for sub in include:
+        src = Path(oracle_ws) / sub
+        dst = Path(ws.root) / sub
+        if dst.exists():
+            shutil.rmtree(dst)
+        shutil.copytree(src, dst)
+
+
 def assert_csvs_equal(a: Path, b: Path, float_rtol: float = 1e-9) -> None:
     """Assert two CSVs are equal, with floating-point tolerance."""
     df_a = pd.read_csv(a)
