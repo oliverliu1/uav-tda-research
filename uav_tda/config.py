@@ -45,6 +45,26 @@ SUMMARY_STAT_NAMES = (
     "total_persistence", "mean_birth", "mean_death", "persistence_entropy",
 )
 
+# Hyperparameter grids (Phase 5).
+LR_C_GRID = (0.1, 1.0, 10.0)
+RF_N_ESTIMATORS_GRID = (100, 300)
+RF_MAX_DEPTH_GRID = (10, 20, None)
+SVM_C_GRID = (0.1, 1.0, 10.0)
+SVM_GAMMA_GRID = ("scale", "auto")
+GRID_CV_FOLDS = 3
+
+# Feature sets and model names used by the supervised pipeline.
+FEATURE_SETS = ("original", "summary_only", "summary_plus_images", "combined")
+MODEL_NAMES = ("logreg", "rf", "svm")
+
+# SVC with RBF kernel scales O(N^2) to O(N^3); at N=85k it is intractable.
+# Train SVM on a stratified subsample of this size (set to None to disable).
+SVM_MAX_TRAIN_ROWS = 5000
+
+# Curated RF feature subset (Phase 5, item 14).
+TOP_K_RF_IMPORTANCE = 30
+TOP_K_MUTUAL_INFO = 30
+
 TRAIN_FRAC = 0.70
 VAL_FRAC = 0.15
 TEST_FRAC = 0.15
