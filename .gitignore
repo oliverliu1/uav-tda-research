@@ -66,3 +66,9 @@ poster_eda/results_backup_with_leakage/
 
 # Hermetic monolith test-harness cache (tests/monolith_harness.py)
 .cache/
+
+# Runtime junk
+pipeline.pid
+
+# Derived prep artifacts (reproducible from seed=42 + data/UAVIDS-2025.csv)
+outputs/*.json
