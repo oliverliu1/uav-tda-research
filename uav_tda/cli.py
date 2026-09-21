@@ -118,32 +118,32 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", type=str, default=None)
     p.set_defaults(func=_cmd_probe)
 
-    p = sub.add_parser("prep", help="Phase 1: data prep and splits.")
+    p = sub.add_parser("prep", help="Phase 2: data prep and splits.")
     _add_common_args(p)
     p.add_argument("--seed", type=int, default=42)
     p.set_defaults(func=_cmd_prep)
 
-    p = sub.add_parser("tda", help="Phase 2: persistence diagrams per manifold/split.")
+    p = sub.add_parser("tda", help="Phase 3: persistence diagrams per manifold/split.")
     _add_common_args(p)
     p.add_argument("--manifold", choices=["c2", "network", "physical", "all"], default="all")
     p.add_argument("--split", choices=["train", "val", "test", "all"], default="all")
     p.add_argument("--seed", type=int, default=42)
     p.set_defaults(func=_cmd_tda)
 
-    p = sub.add_parser("features", help="Phase 3: featurize persistence diagrams.")
+    p = sub.add_parser("features", help="Phase 4: featurize persistence diagrams.")
     _add_common_args(p)
     p.set_defaults(func=_cmd_features)
 
-    p = sub.add_parser("supervised", help="Phase 4: supervised classification.")
+    p = sub.add_parser("supervised", help="Phase 5: supervised classification.")
     _add_common_args(p)
     p.set_defaults(func=_cmd_supervised)
 
-    p = sub.add_parser("unsupervised", help="Phase 5: unsupervised analysis.")
+    p = sub.add_parser("unsupervised", help="Phase 6: unsupervised analysis.")
     _add_common_args(p)
     p.add_argument("--n-jobs", type=int, default=-1)
     p.set_defaults(func=_cmd_unsupervised)
 
-    p = sub.add_parser("evaluate", help="Phase 6: evaluation and ablations.")
+    p = sub.add_parser("evaluate", help="Phase 7: evaluation and ablations.")
     _add_common_args(p)
     p.set_defaults(func=_cmd_evaluate)
 

@@ -63,6 +63,6 @@ Each is scaled independently on train only. The partition mirrors Zeng et al. (2
 
 **Read-only / frozen — do not modify:** `pipeline.py` (frozen equivalence oracle and historical record — do not modify), `data/` (immutable raw dataset), `outputs/` (pipeline-written), `logs/`, `scripts_archive/` (superseded pre-`pipeline.py` numbered scripts), `poster_eda/` (older EDA, contains a known-leakage backup).
 
-**Write zones:** `uav_tda/` (the maintained package), `tests/`, `docs/`, `paper/` (brief, drafts, diagnostics markdown), `results/tables/`, `results/figures/`, and `tools/` (diagnostic/probe scripts — note this dir may not exist yet and is created as needed).
+**Write zones:** `uav_tda/` (the maintained package), `tests/`, `docs/` (plans and design notes, e.g. `docs/superpowers/plans/`), `paper/` (brief, drafts, diagnostics markdown), `results/tables/`, `results/figures/`, and `tools/` (diagnostic/probe scripts — note this dir may not exist yet and is created as needed).
 
 **Number provenance:** every number cited in the paper must trace to `paper/PROBE_RESULTS.md` or a `results/tables/*.csv`. Do not paraphrase or invent results.

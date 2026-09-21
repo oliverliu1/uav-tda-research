@@ -1,0 +1,57 @@
+\definecolor{nodeGray}{RGB}{180,180,180}
+\definecolor{nodeOrange}{RGB}{200,155,80}
+\definecolor{nodeViolet}{RGB}{160,130,210}
+\definecolor{nodeTeal}{RGB}{90,175,160}
+\definecolor{nodeSalmon}{RGB}{220,150,130}
+\definecolor{labelGray}{RGB}{140,140,140}
+
+\begin{tikzpicture}[
+    box/.style={
+        rectangle, rounded corners=4pt,
+        minimum width=2.8cm, minimum height=1.1cm,
+        align=center, font=\sffamily\small,
+        text=white, inner sep=6pt
+    },
+    arr/.style={
+        -{Latex[length=2.5mm, width=2mm]},
+        line width=0.8pt, color=nodeGray!80
+    },
+    w2label/.style={font=\sffamily\small, color=labelGray}
+]
+
+\node[box, fill=nodeGray!70, text=black!80] (uav)
+    {\textbf{UAV flow}\\[2pt] 21 features};
+
+\node[box, fill=nodeOrange, right=1.6cm of uav] (partition)
+    {\textbf{Partition}\\[2pt] Per Zeng et al.};
+
+\node[box, fill=nodeViolet, right=2.2cm of partition, yshift=2.0cm] (c2)
+    {\textbf{C2 manifold}\\[2pt] 7 features, sparse VR};
+
+\node[box, fill=nodeTeal, right=2.2cm of partition] (net)
+    {\textbf{Network manifold}\\[2pt] 10 features, sparse VR};
+
+\node[box, fill=nodeSalmon, right=2.2cm of partition, yshift=-2.0cm] (phy)
+    {\textbf{Physical manifold}\\[2pt] 5 features, exact VR};
+
+\node[box, fill=nodeGray!70, text=black!80, right=2.4cm of net] (anomaly)
+    {\textbf{Anomaly score}\\[2pt] Sum + threshold};
+
+\draw[arr] (uav.east) -- (partition.west);
+\draw[arr] (partition.east) -- ++(0.6,0) |- (c2.west);
+\draw[arr] (partition.east) -- ++(0.6,0) |- (net.west);
+\draw[arr] (partition.east) -- ++(0.6,0) |- (phy.west);
+
+\draw[arr] (c2.east)  -- ++(0.5,0) |-
+    node[w2label, pos=0.25, above right=0pt and 0pt] {$W_2$}
+    (anomaly.north west |- anomaly.west) -- (anomaly.west);
+
+\draw[arr] (net.east) --
+    node[w2label, above, pos=0.5] {$W_2$}
+    (anomaly.west);
+
+\draw[arr] (phy.east) -- ++(0.5,0) |-
+    node[w2label, pos=0.25, below right=0pt and 0pt] {$W_2$}
+    (anomaly.south west |- anomaly.west) -- (anomaly.west);
+
+\end{tikzpicture}
