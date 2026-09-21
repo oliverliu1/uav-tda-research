@@ -12,6 +12,12 @@ NOTE: combined detection here uses max-pool across manifolds plus the
 per-manifold flag patterns above (the monolith's own Phase 6 semantics).
 This is intentionally distinct from uav_tda.probe's sum-based semantics
 (the paper's probe) and must not be merged with it.
+
+Reconciliation ruling (Phase 3): the canonical forward-looking anomaly
+score is uav_tda.probe/metrics' Z-normalized SUM across manifolds
+(metrics.binary_auc_by_subset_znorm); this module's max-pool-plus-flag-
+pattern scheme remains a frozen, monolith-equivalent port and is not
+updated to match — both are correct for what they each reproduce.
 """
 
 from __future__ import annotations
