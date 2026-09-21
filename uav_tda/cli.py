@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
-from . import data, evaluate, features, metrics, probe, supervised, unsupervised
+from . import data, evaluate, features, manuscript, metrics, probe, supervised, unsupervised
 from . import tda as tda_module
-from .config import PROBE_DELTA, PROBE_PER_CLASS, PROBE_TOP_K
+from .config import MANUSCRIPT_SEEDS, PROBE_DELTA, PROBE_PER_CLASS, PROBE_TOP_K
 from .paths import TABLES_DIR
 from .provenance import write_provenance
 from .workspace import Workspace
@@ -39,50 +38,13 @@ def _cmd_probe(args: argparse.Namespace) -> int:
     return 0
 
 
-def _rebuild_paths(seed: int) -> dict[str, Path]:
-    rebuild = TABLES_DIR / "rebuild"
-    return {
-        "raw": rebuild / f"probe_distances_seed{seed}.csv",
-        "znorm": rebuild / f"probe_distances_seed{seed}_znorm.csv",
-        "val": rebuild / f"val_normal_distances_seed{seed}.csv",
-        "stats": rebuild / f"znorm_stats_seed{seed}.json",
-    }
-
-
 def _run_znorm_probe(seed: int, w2_timeout: float | None,
                       per_class: int = 200, top_k: int = 50,
                       delta: float = 0.2) -> int:
     """Run the coupled test+val znorm probe for one seed; write rebuild/ artifacts."""
-    paths = _rebuild_paths(seed)
-    paths["raw"].parent.mkdir(parents=True, exist_ok=True)
-
-    test_df, val_df, stats, timeout_counts = probe.run_probe_with_znorm(
-        seed=seed, per_class=per_class, top_k=top_k, delta=delta,
-        w2_timeout=w2_timeout,
+    paths, test_df, stats = manuscript.run_znorm_probe_and_write(
+        seed=seed, w2_timeout=w2_timeout, per_class=per_class, top_k=top_k, delta=delta,
     )
-    znorm_df = metrics.apply_znorm(test_df, stats)
-
-    params = {
-        "seed": seed, "per_class": per_class, "top_k": top_k,
-        "delta": delta, "w2_timeout": w2_timeout,
-    }
-
-    test_df.to_csv(paths["raw"], index=False)
-    write_provenance(paths["raw"], params)
-
-    znorm_df.to_csv(paths["znorm"], index=False)
-    write_provenance(paths["znorm"], params)
-
-    val_df.to_csv(paths["val"], index=False)
-    write_provenance(paths["val"], params)
-
-    stats_payload = {
-        "stats": {m: {"mean": mean, "std": std} for m, (mean, std) in stats.items()},
-        "timeout_counts": timeout_counts,
-        "params": params,
-    }
-    paths["stats"].write_text(json.dumps(stats_payload, indent=2, sort_keys=True))
-    write_provenance(paths["stats"], params)
 
     raw_auc = metrics.binary_auc_by_subset(test_df)
     znorm_auc = metrics.binary_auc_by_subset_znorm(test_df, stats)
@@ -90,6 +52,23 @@ def _run_znorm_probe(seed: int, w2_timeout: float | None,
         print(f"  {subset:20s} raw AUC = {raw_auc[subset]:.4f}  "
               f"znorm AUC = {znorm_auc[subset]:.4f}")
     print(f"wrote {paths['raw']}, {paths['znorm']}, {paths['val']}, {paths['stats']}")
+    return 0
+
+
+def _cmd_manuscript_report(args: argparse.Namespace) -> int:
+    seeds = tuple(int(s) for s in args.seeds.split(","))
+    rebuild = TABLES_DIR / "rebuild"
+    manuscript.build_manuscript_stats(
+        seeds=seeds, B=args.bootstrap, w2_timeout=args.w2_timeout, bootstrap_seed=0,
+        rebuild_dir=rebuild,
+    )
+
+    binary_out = rebuild / "binary_auc.csv"
+    attribution_out = rebuild / "manifold_attribution.csv"
+    print(f"wrote {binary_out}, {attribution_out}")
+    print(f"wrote {rebuild / 'paper_snippets' / 'attribution_table_rows.tex'}, "
+          f"{rebuild / 'paper_snippets' / 'binary_auc_pgfplots.tex'}")
+    print("wrote paper/MANUSCRIPT_STATS.md")
     return 0
 
 
@@ -189,6 +168,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("znorm-report", help="Build the 3-seed znorm-vs-raw reanalysis report.")
     p.set_defaults(func=_cmd_znorm_report)
+
+    p = sub.add_parser("manuscript-report",
+                        help="Ensure the ten-seed campaign artifacts and build "
+                             "bootstrap-CI stats tables (Phase 4).")
+    p.add_argument("--seeds", type=str,
+                    default=",".join(str(s) for s in MANUSCRIPT_SEEDS))
+    p.add_argument("--bootstrap", type=int, default=2000)
+    p.add_argument("--w2-timeout", type=float, default=30.0)
+    p.set_defaults(func=_cmd_manuscript_report)
 
     p = sub.add_parser("prep", help="Phase 2: data prep and splits.")
     _add_common_args(p)
