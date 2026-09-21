@@ -77,3 +77,7 @@ SUPERVISED_SEEDS = (42, 7, 2024)    # monolith's supervised tables
 PROBE_PER_CLASS = 200
 PROBE_TOP_K = 50
 PROBE_DELTA = 0.2
+
+# Paper's three seeds first, then seven sequential seeds, for the
+# manuscript's ten-seed bootstrap-CI evaluation (Phase 4).
+MANUSCRIPT_SEEDS = (42, 7, 123, 0, 1, 2, 3, 4, 5, 6)
