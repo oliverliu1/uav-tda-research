@@ -69,3 +69,46 @@ def aggregate_over_seeds(dfs: dict[int, pd.DataFrame]) -> dict[str, pd.DataFrame
     per = (pd.concat(attack_rows).groupby(["attack_class", "manifold"])["auc"]
            .agg(["mean", "std"]).reset_index())
     return {"binary": binary, "per_attack": per}
+
+
+# --- Phase 3: Z-normalized scoring (paper §III.E / §V correction) -----------
+# Canonical forward-looking scoring: per-manifold W2, Z-normalized on held-out
+# VALIDATION Normal-Traffic distances, then summed across manifolds. The raw
+# unweighted-sum functions above are frozen (golden-master-locked to the
+# published extended-abstract numbers) and must not change.
+# NOTE: stats and the distances they normalize must come from the SAME probe
+# run (same sparse-Rips baseline realization) — see run_probe_with_znorm.
+
+import logging
+
+_log = logging.getLogger("uav_tda.metrics")
+
+
+def znorm_stats_from_val(val_df: pd.DataFrame) -> dict:
+    """Per-manifold (mean, std) of W2 over validation Normal-Traffic rows."""
+    normal = val_df[val_df["label"] == NORMAL]
+    stats: dict = {}
+    for m in MANIFOLDS:
+        x = normal[f"W2_{m}"].to_numpy(dtype=float)
+        mean, std = float(np.mean(x)), float(np.std(x))
+        if std < 1e-12:
+            _log.warning("znorm: manifold %s has degenerate std=%.3g; using 1.0", m, std)
+            std = 1.0
+        stats[m] = (mean, std)
+    return stats
+
+
+def apply_znorm(df: pd.DataFrame, stats: dict) -> pd.DataFrame:
+    """Copy of df with manifold W2 columns z-scored and subset sums recomputed."""
+    out = df.copy()
+    for m in MANIFOLDS:
+        mean, std = stats[m]
+        out[f"W2_{m}"] = (out[f"W2_{m}"].astype(float) - mean) / std
+    for subset, manifolds in MANIFOLD_SUBSETS.items():
+        out[f"W2_{subset}"] = sum(out[f"W2_{m}"] for m in manifolds)
+    return out
+
+
+def binary_auc_by_subset_znorm(df: pd.DataFrame, stats: dict) -> dict:
+    """Normal-vs-attack AUC per subset on z-normalized scores."""
+    return binary_auc_by_subset(apply_znorm(df, stats))
