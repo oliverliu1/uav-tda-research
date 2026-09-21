@@ -49,6 +49,7 @@ def test_evaluate_debug_equivalent_to_monolith(monolith_cache, repo_root, tmp_pa
     oracle_figures = oracle / "results" / "figures"
 
     for name in WRITTEN_TABLES:
+        # NOTE: RF n_jobs=-1 ablation cells can flake at 1e-6 if the oracle cache is rebuilt (cross-process float nondeterminism; see task-8 forensics in the SDD ledger).
         mh.assert_csvs_equal(oracle_tables / name, ws.tables_dir / name, float_rtol=1e-6)
 
     for name in WRITTEN_FIGURES:

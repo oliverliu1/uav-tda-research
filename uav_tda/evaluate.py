@@ -69,8 +69,6 @@ def best_supervised_per_feature_set(summary_df) -> "pandas.DataFrame":
 
 def build_final_supervised(summary_df) -> "pandas.DataFrame":
     """Final paper table: best model per feature set with mean +/- std for headline metrics."""
-    import pandas as pd
-
     best = best_supervised_per_feature_set(summary_df)
     keep_cols = [
         "feature_set", "model",

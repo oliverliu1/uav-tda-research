@@ -128,6 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--manifold", choices=["c2", "network", "physical", "all"], default="all")
     p.add_argument("--split", choices=["train", "val", "test", "all"], default="all")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--n-jobs", type=int, default=-1)
     p.set_defaults(func=_cmd_tda)
 
     p = sub.add_parser("features", help="Phase 4: featurize persistence diagrams.")

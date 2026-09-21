@@ -49,8 +49,8 @@ uav-tda all             # every phase in order
 ```
 
 Shared flags: `--debug` (fast smoke-test sample), `--root PATH` (workspace root, default: repo root).
-`tda` (and `all`) also take `--manifold {c2,network,physical,all}`, `--split {train,val,test,all}`,
-`--seed`; `unsupervised` (and `all`) also take `--n-jobs`.
+`tda`, `unsupervised`, and `all` also take `--n-jobs`; `tda` and `all` also take `--manifold {c2,network,physical,all}`, `--split {train,val,test,all}`,
+and `--seed`.
 
 **Legacy, equivalent:** the original monolith commands still work identically against `pipeline.py`
 and are kept for reference / oracle reproduction:

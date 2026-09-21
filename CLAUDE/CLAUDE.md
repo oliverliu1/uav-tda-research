@@ -26,9 +26,7 @@ uav-tda all             # every phase in order
 ```
 
 Shared flags on every subcommand: `--debug` (fast stratified-sample smoke test — use this for any quick
-iteration), `--root PATH` (workspace root, default: repo root via `Workspace.default()`). `tda` (and
-`all`) also take `--manifold {c2,network,physical,all}`, `--split {train,val,test,all}`, `--seed`;
-`unsupervised` (and `all`) also take `--n-jobs`.
+iteration), `--root PATH` (workspace root, default: repo root via `Workspace.default()`). `tda`, `unsupervised`, and `all` also take `--n-jobs`; `tda` and `all` also take `--manifold {c2,network,physical,all}`, `--split {train,val,test,all}`, and `--seed`.
 
 **Legacy, equivalent:** the original monolith subcommands (`python pipeline.py prep`, `tda`, `features`,
 `supervised`, `unsupervised`, `evaluate`, `all`, with `--debug`/`-v/--verbose` and the same `tda` flags)
