@@ -17,7 +17,7 @@ from sklearn.metrics import roc_auc_score
 
 from . import metrics
 from .metrics import ATTACK_CLASSES, MANIFOLD_SUBSETS, NORMAL
-from .paths import TABLES_DIR
+from .paths import REPO_ROOT, TABLES_DIR
 from .provenance import write_provenance
 
 
@@ -267,3 +267,343 @@ def build_attribution_table(
                 "dominant": m == dominant_manifold,
             })
     return pd.DataFrame(rows)
+
+
+# --- LaTeX/pgfplots emitters --------------------------------------------------
+# These re-derive the paper's Table tab:per_attack_auc and Fig. fig:binary_auc
+# literal snippets from `build_attribution_table`/`build_binary_auc_table`
+# output, so the manuscript numbers and the code that produced them never
+# drift apart. See CLAUDE/SciTech2027_IntelligentSystems_Liu/main.tex for the
+# hand-written originals these are meant to match/replace.
+
+# Paper's row order for Table tab:per_attack_auc (not ATTACK_CLASSES' order).
+_ATTRIBUTION_ROW_ORDER = ("Sybil Attack", "Flooding Attack", "Blackhole Attack", "Wormhole Attack")
+# Paper's column order for Table tab:per_attack_auc / manifold key -> header.
+_ATTRIBUTION_COLUMNS = (("c2", "C2"), ("network", "Network"), ("physical", "Physical"))
+
+# Paper's symbolic x-coordinate order for Fig. fig:binary_auc, mapping each
+# `metrics.MANIFOLD_SUBSETS` key to its plotted label.
+_BINARY_SUBSET_ORDER = (
+    ("c2_only", "C2"),
+    ("network_only", "Network"),
+    ("physical_only", "Physical"),
+    ("c2_network", "C2+N"),
+    ("c2_physical", "C2+P"),
+    ("network_physical", "N+P"),
+    ("all_three", "All three"),
+)
+
+# Vertical offset (axis units) from a bar's (mean + std) upper whisker to its
+# manual pgfplots value-label node, matching the paper's Fig. fig:binary_auc
+# hand-placed labels (see e.g. `node ... at (axis cs:C2,0.792) {0.75}` where
+# mean=0.749, std=0.027: 0.749 + 0.027 + 0.016 != 0.792 exactly in the
+# hand-authored original, so this is the emitter's own convention, inferred
+# to sit just above the error bar; flagged as a candidate pending author
+# sign-off, not a byte-for-byte reproduction of the hand-placed original).
+_NODE_Y_OFFSET = 0.033
+
+
+def emit_attribution_rows(attr_df: pd.DataFrame) -> str:
+    """Render `build_attribution_table` output as Table tab:per_attack_auc rows.
+
+    One line per attack (order: Sybil, Flooding, Blackhole, Wormhole),
+    columns C2/Network/Physical in that order, each cell
+    `${mean:.2f} \\pm {std:.2f}$`, the dominant manifold's cell wrapped in
+    `\\mathbf{...}`, each line ending in ` \\\\`. Matches
+    `CLAUDE/SciTech2027_IntelligentSystems_Liu/main.tex`'s
+    `tab:per_attack_auc` row syntax exactly.
+    """
+    lines = []
+    for attack in _ATTRIBUTION_ROW_ORDER:
+        short_name = attack.replace(" Attack", "")
+        sub = attr_df[attr_df["attack_class"] == attack].set_index("manifold")
+        cells = []
+        for manifold_key, _header in _ATTRIBUTION_COLUMNS:
+            row = sub.loc[manifold_key]
+            cell = f"{row['mean']:.2f} \\pm {row['std']:.2f}"
+            if bool(row["dominant"]):
+                cell = f"\\mathbf{{{cell}}}"
+            cells.append(f"${cell}$")
+        lines.append(f"{short_name} & {' & '.join(cells)} \\\\")
+    return "\n".join(lines)
+
+
+def emit_binary_pgfplots(bin_df: pd.DataFrame, scoring: str = "znorm") -> str:
+    """Render `build_binary_auc_table` output as the Fig. fig:binary_auc pgfplots block.
+
+    Filters `bin_df` to `scoring`, emits a `coordinates { ... };` block (one
+    `({label}, {mean:.3f}) +- (0, {std:.3f})` per subset, in the paper's
+    symbolic x-coordinate order C2, Network, Physical, C2+N, C2+P, N+P, All
+    three), followed by the seven manual `\\node` value-label lines at
+    y = mean + std + `_NODE_Y_OFFSET`, matching the paper's placement
+    convention. See `_NODE_Y_OFFSET` for the sign-off caveat on that offset.
+    """
+    sub = bin_df[bin_df["scoring"] == scoring].set_index("subset")
+
+    coord_lines = ["coordinates {"]
+    for subset_key, label in _BINARY_SUBSET_ORDER:
+        row = sub.loc[subset_key]
+        coord_lines.append(f"    ({label}, {row['mean']:.3f}) +- (0, {row['std']:.3f})")
+    coord_lines.append("};")
+
+    node_lines = []
+    for subset_key, label in _BINARY_SUBSET_ORDER:
+        row = sub.loc[subset_key]
+        y = row["mean"] + row["std"] + _NODE_Y_OFFSET
+        node_lines.append(
+            r"\node[font=\small, anchor=south, fill=white, inner sep=1pt] at "
+            f"(axis cs:{label},{y:.3f}) {{{row['mean']:.2f}}};"
+        )
+
+    return "\n".join(coord_lines + node_lines)
+
+
+# --- Manuscript-stats orchestrator -------------------------------------------
+# Phase-3 (3-seed) comparison numbers, computed from build_binary_auc_table /
+# build_attribution_table restricted to config.PROBE_SEEDS. Distinguished in
+# MANUSCRIPT_STATS.md from the PUBLISHED 3-seed literals below, which are
+# quoted (not recomputed) from paper/MULTI_SEED_VARIANCE.md.
+PAPER_DIR = REPO_ROOT / "paper"
+SNIPPETS_DIR = TABLES_DIR / "rebuild" / "paper_snippets"
+
+# Published 3-seed literals, quoted verbatim from paper/MULTI_SEED_VARIANCE.md
+# (Diagnostic C: seeds 42/7/123, test-Normal-substitute lineage, 5s w2_timeout
+# for seeds 7/123) for side-by-side comparison ONLY. Not recomputed here.
+PUBLISHED_3SEED_BINARY_AUC = {
+    # subset -> (mean, std), raw scoring (Diagnostic C predates znorm scoring).
+    "c2_only": (0.7488, 0.0269), "network_only": (0.7610, 0.0163),
+    "physical_only": (0.6114, 0.0152), "c2_network": (0.8304, 0.0211),
+    "c2_physical": (0.7542, 0.0339), "network_physical": (0.8594, 0.0043),
+    "all_three": (0.8577, 0.0276),
+}
+PUBLISHED_3SEED_ATTRIBUTION = {
+    # (attack, manifold) -> (mean, std), raw scoring.
+    ("Blackhole Attack", "c2"): (0.4562, 0.0198),
+    ("Blackhole Attack", "network"): (0.3285, 0.0172),
+    ("Blackhole Attack", "physical"): (0.7880, 0.0162),
+    ("Flooding Attack", "c2"): (0.6035, 0.0293),
+    ("Flooding Attack", "network"): (0.7858, 0.0053),
+    ("Flooding Attack", "physical"): (0.3815, 0.0090),
+    ("Sybil Attack", "c2"): (0.6491, 0.0051),
+    ("Sybil Attack", "network"): (0.8698, 0.0021),
+    ("Sybil Attack", "physical"): (0.2031, 0.0114),
+    ("Wormhole Attack", "c2"): (0.5400, 0.0270),
+    ("Wormhole Attack", "network"): (0.2769, 0.0175),
+    ("Wormhole Attack", "physical"): (0.7388, 0.0122),
+}
+
+
+def _fmt_mean_std_ci(mean: float, std: float, ci_lo: float, ci_hi: float) -> str:
+    return f"{mean:.4f} ± {std:.4f}  [{ci_lo:.4f}, {ci_hi:.4f}]"
+
+
+def _render_manuscript_stats(
+    seeds: tuple[int, ...], B: int, w2_timeout: float,
+    binary_df: pd.DataFrame, attribution_df: pd.DataFrame,
+    binary_df_3seed: pd.DataFrame, attribution_df_3seed: pd.DataFrame,
+) -> str:
+    lines: list[str] = []
+    lines.append("# MANUSCRIPT_STATS: Ten-Seed Bootstrap-CI Evaluation")
+    lines.append("")
+    lines.append(
+        "_Generated by `uav-tda manuscript-report` (`uav_tda/manuscript.py`) "
+        f"from `results/tables/rebuild/probe_distances_seed{{{','.join(str(s) for s in seeds)}}}.csv` "
+        "and the matching `znorm_stats_seed*.json`, across "
+        f"{len(seeds)} seeds ({', '.join(str(s) for s in seeds)})._"
+    )
+    lines.append("")
+
+    # Section 1: header/config.
+    lines.append("## 1. Configuration")
+    lines.append("")
+    lines.append(f"- Seeds ({len(seeds)}): {', '.join(str(s) for s in seeds)}")
+    lines.append(f"- Bootstrap replicates: B = {B}")
+    lines.append(f"- Wasserstein-2 per-call timeout: {w2_timeout}s")
+    lines.append(
+        "- CI method: cluster bootstrap over seeds, stratified per-seed "
+        "resampling on multiclass label, 2.5th/97.5th percentile of the "
+        "across-seed mean AUC over B replicates (`bootstrap_mean_auc_ci`)."
+    )
+    lines.append("")
+
+    # Section 2: binary AUC raw+znorm with CIs.
+    lines.append("## 2. Binary AUC (Normal vs any attack), raw + znorm, with bootstrap CIs")
+    lines.append("")
+    lines.append(f"Mean ± std across {len(seeds)} seeds, with 95% bootstrap CI on the mean.")
+    lines.append("")
+    lines.append("| Subset | Raw AUC (mean ± std [95% CI]) | Znorm AUC (mean ± std [95% CI]) |")
+    lines.append("| :--- | ---: | ---: |")
+    for subset in MANIFOLD_SUBSETS:
+        raw_row = binary_df[(binary_df["subset"] == subset) & (binary_df["scoring"] == "raw")].iloc[0]
+        z_row = binary_df[(binary_df["subset"] == subset) & (binary_df["scoring"] == "znorm")].iloc[0]
+        lines.append(
+            f"| {subset} "
+            f"| {_fmt_mean_std_ci(raw_row['mean'], raw_row['std'], raw_row['ci_lo'], raw_row['ci_hi'])} "
+            f"| {_fmt_mean_std_ci(z_row['mean'], z_row['std'], z_row['ci_lo'], z_row['ci_hi'])} |"
+        )
+    lines.append("")
+
+    # Section 3: attribution table with CIs + dominance.
+    lines.append("## 3. Per-attack manifold attribution, with bootstrap CIs")
+    lines.append("")
+    lines.append(
+        "One-vs-rest AUC per (attack, manifold), raw scoring (per-manifold "
+        "AUC is scoring-invariant; see `build_attribution_table`), with "
+        "dominant (highest-mean) manifold marked."
+    )
+    lines.append("")
+    lines.append("| Attack | Manifold | AUC (mean ± std [95% CI]) | Dominant? |")
+    lines.append("| :--- | :--- | ---: | :---: |")
+    for attack in _ATTRIBUTION_ROW_ORDER:
+        for manifold_key, header in _ATTRIBUTION_COLUMNS:
+            row = attribution_df[(attribution_df["attack_class"] == attack)
+                                  & (attribution_df["manifold"] == manifold_key)].iloc[0]
+            mark = "**yes**" if bool(row["dominant"]) else ""
+            lines.append(
+                f"| {attack} | {header} "
+                f"| {_fmt_mean_std_ci(row['mean'], row['std'], row['ci_lo'], row['ci_hi'])} | {mark} |"
+            )
+    lines.append("")
+    dominance_summary = {
+        attack: attribution_df[(attribution_df["attack_class"] == attack)
+                                & (attribution_df["dominant"])]["manifold"].iloc[0]
+        for attack in _ATTRIBUTION_ROW_ORDER
+    }
+    lines.append(
+        "Dominant-manifold summary (10-seed): "
+        + "; ".join(f"{a.replace(' Attack', '')} -> {m}" for a, m in dominance_summary.items())
+        + "."
+    )
+    lines.append("")
+
+    # Section 4: comparison vs Phase-3 3-seed (recomputed) and vs published 3-seed (quoted).
+    lines.append("## 4. Comparison: 10-seed vs Phase-3 3-seed (recomputed) vs published 3-seed (quoted)")
+    lines.append("")
+    lines.append(
+        "\"Phase-3 3-seed (recomputed)\" restricts this same pipeline/code "
+        "path to seeds 42, 7, 123 only (raw scoring), so it is directly "
+        "comparable to the 10-seed column. \"Published 3-seed (quoted)\" is "
+        "reproduced **as a literal**, not recomputed, from "
+        "`paper/MULTI_SEED_VARIANCE.md` (Diagnostic C: seeds 42/7/123, "
+        "test-Normal-substitute lineage, 5s w2_timeout for seeds 7/123) — "
+        "the numbers currently in the published extended abstract."
+    )
+    lines.append("")
+    lines.append("### 4a. Binary AUC (raw scoring)")
+    lines.append("")
+    lines.append("| Subset | 10-seed (mean ± std) | Phase-3 3-seed, recomputed (mean ± std) | Published 3-seed, quoted (mean ± std) |")
+    lines.append("| :--- | ---: | ---: | ---: |")
+    for subset in MANIFOLD_SUBSETS:
+        ten_row = binary_df[(binary_df["subset"] == subset) & (binary_df["scoring"] == "raw")].iloc[0]
+        three_row = binary_df_3seed[(binary_df_3seed["subset"] == subset)
+                                     & (binary_df_3seed["scoring"] == "raw")].iloc[0]
+        pub_mean, pub_std = PUBLISHED_3SEED_BINARY_AUC[subset]
+        lines.append(
+            f"| {subset} | {ten_row['mean']:.4f} ± {ten_row['std']:.4f} "
+            f"| {three_row['mean']:.4f} ± {three_row['std']:.4f} "
+            f"| {pub_mean:.4f} ± {pub_std:.4f} |"
+        )
+    lines.append("")
+    lines.append("### 4b. Per-attack dominant-manifold AUC (raw scoring)")
+    lines.append("")
+    lines.append("| Attack | Manifold | 10-seed (mean ± std) | Phase-3 3-seed, recomputed (mean ± std) | Published 3-seed, quoted (mean ± std) |")
+    lines.append("| :--- | :--- | ---: | ---: | ---: |")
+    for attack in _ATTRIBUTION_ROW_ORDER:
+        for manifold_key, header in _ATTRIBUTION_COLUMNS:
+            ten_row = attribution_df[(attribution_df["attack_class"] == attack)
+                                      & (attribution_df["manifold"] == manifold_key)].iloc[0]
+            three_row = attribution_df_3seed[(attribution_df_3seed["attack_class"] == attack)
+                                              & (attribution_df_3seed["manifold"] == manifold_key)].iloc[0]
+            pub_mean, pub_std = PUBLISHED_3SEED_ATTRIBUTION[(attack, manifold_key)]
+            lines.append(
+                f"| {attack} | {header} | {ten_row['mean']:.4f} ± {ten_row['std']:.4f} "
+                f"| {three_row['mean']:.4f} ± {three_row['std']:.4f} "
+                f"| {pub_mean:.4f} ± {pub_std:.4f} |"
+            )
+    lines.append("")
+
+    # Section 5: .tex snippet usage note.
+    lines.append("## 5. LaTeX snippet drop-in usage note")
+    lines.append("")
+    lines.append(
+        "`results/tables/rebuild/paper_snippets/attribution_table_rows.tex` "
+        "(from `emit_attribution_rows`) contains candidate replacement rows "
+        "for Table `tab:per_attack_auc`'s tabular body in "
+        "`CLAUDE/SciTech2027_IntelligentSystems_Liu/main.tex`, and "
+        "`results/tables/rebuild/paper_snippets/binary_auc_pgfplots.tex` "
+        "(from `emit_binary_pgfplots`, znorm scoring) contains a candidate "
+        "replacement `coordinates {...}` + `\\node` block for Fig. "
+        "`fig:binary_auc`'s pgfplots axis. Both are generated fresh from the "
+        "10-seed bootstrap-CI tables above at report-build time, so the "
+        "manuscript text and the code that produced it cannot silently "
+        "drift apart. **These are candidate snippets pending author "
+        "sign-off** — the 10-seed numbers, the switch to znorm scoring, and "
+        "the `_NODE_Y_OFFSET` label-placement convention are all authorial "
+        "decisions this report does not make; do not paste them into "
+        "`main.tex` without review."
+    )
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def build_manuscript_stats(
+    seeds: tuple[int, ...] = None,
+    B: int = 2000,
+    w2_timeout: float = 30.0,
+    bootstrap_seed: int = 0,
+    rebuild_dir: Path | None = None,
+) -> None:
+    """Ensure `seeds`' artifacts, build tables, and write all Phase-4 outputs.
+
+    Orchestrates: ensure seeds (`run_missing_seeds`) -> load frames -> build
+    binary/attribution tables -> write `binary_auc.csv` /
+    `manifold_attribution.csv` (+ provenance) -> write the two `.tex`
+    snippets under `results/tables/rebuild/paper_snippets/` -> write
+    `paper/MANUSCRIPT_STATS.md`. Also recomputes the Phase-3-comparable
+    3-seed (42, 7, 123) tables via this same code path for the report's
+    §4 comparison section. Never overwrites another seed's already-present
+    rebuild/ artifacts (delegated to `run_missing_seeds`/`missing_seeds`).
+    """
+    from .config import MANUSCRIPT_SEEDS, PROBE_SEEDS
+
+    if seeds is None:
+        seeds = MANUSCRIPT_SEEDS
+    rebuild = rebuild_dir if rebuild_dir is not None else (TABLES_DIR / "rebuild")
+    snippets_dir = rebuild / "paper_snippets"
+    # The report goes to the repo's paper/ tree whenever `rebuild` is the
+    # canonical rebuild location (whether defaulted or passed explicitly, as
+    # the CLI does); a redirected `rebuild_dir` (tests) instead gets a
+    # sibling paper/ dir so tests never touch the real paper/ tree.
+    paper_dir = PAPER_DIR if rebuild == (TABLES_DIR / "rebuild") else (rebuild.parent / "paper")
+
+    run_missing_seeds(seeds, w2_timeout=w2_timeout)
+
+    seed_frames = load_seed_frames(seeds, rebuild)
+    binary_df = build_binary_auc_table(seed_frames, B=B, bootstrap_seed=bootstrap_seed)
+    attribution_df = build_attribution_table(seed_frames, B=B, bootstrap_seed=bootstrap_seed)
+
+    rebuild.mkdir(parents=True, exist_ok=True)
+    binary_out = rebuild / "binary_auc.csv"
+    attribution_out = rebuild / "manifold_attribution.csv"
+    binary_df.to_csv(binary_out, index=False)
+    write_provenance(binary_out, {"seeds": list(seeds), "bootstrap": B, "w2_timeout": w2_timeout})
+    attribution_df.to_csv(attribution_out, index=False)
+    write_provenance(attribution_out, {"seeds": list(seeds), "bootstrap": B, "w2_timeout": w2_timeout})
+
+    # Phase-3-comparable 3-seed tables, recomputed through this same code
+    # path (not quoted), restricted to seed_frames already loaded above.
+    three_seed_frames = {s: seed_frames[s] for s in PROBE_SEEDS if s in seed_frames}
+    binary_df_3seed = build_binary_auc_table(three_seed_frames, B=B, bootstrap_seed=bootstrap_seed)
+    attribution_df_3seed = build_attribution_table(three_seed_frames, B=B, bootstrap_seed=bootstrap_seed)
+
+    snippets_dir.mkdir(parents=True, exist_ok=True)
+    attribution_tex = snippets_dir / "attribution_table_rows.tex"
+    attribution_tex.write_text(emit_attribution_rows(attribution_df) + "\n")
+    binary_tex = snippets_dir / "binary_auc_pgfplots.tex"
+    binary_tex.write_text(emit_binary_pgfplots(binary_df, scoring="znorm") + "\n")
+
+    report_text = _render_manuscript_stats(
+        seeds, B, w2_timeout, binary_df, attribution_df, binary_df_3seed, attribution_df_3seed)
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    (paper_dir / "MANUSCRIPT_STATS.md").write_text(report_text)

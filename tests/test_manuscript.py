@@ -188,3 +188,97 @@ def test_manuscript_report_cmd_runs_without_real_probe(tmp_path, monkeypatch):
     assert rc == 0
     assert (rebuild / "binary_auc.csv").exists()
     assert (rebuild / "manifold_attribution.csv").exists()
+    assert (rebuild / "paper_snippets" / "attribution_table_rows.tex").exists()
+    assert (rebuild / "paper_snippets" / "binary_auc_pgfplots.tex").exists()
+    # Report must land in the redirected tree, never the real paper/ dir.
+    assert (tmp_path / "paper" / "MANUSCRIPT_STATS.md").exists()
+
+
+# --- LaTeX/pgfplots emitters (golden-string tests) ---------------------------
+
+def _attr_row(attack, manifold, mean, std, dominant):
+    return {
+        "attack_class": attack, "manifold": manifold,
+        "mean": mean, "std": std,
+        "ci_lo": mean - std, "ci_hi": mean + std,
+        "dominant": dominant,
+    }
+
+
+def test_emit_attribution_rows_golden_string():
+    # Hand-built table using the paper's own tab:per_attack_auc numbers
+    # (Sybil, Flooding, Blackhole, Wormhole x C2/Network/Physical), fed in a
+    # scrambled attack/manifold order to prove the emitter re-sorts to the
+    # paper's row order (Sybil, Flooding, Blackhole, Wormhole) and column
+    # order (C2, Network, Physical) rather than trusting input order.
+    rows = [
+        _attr_row("Wormhole Attack", "physical", 0.74, 0.01, True),
+        _attr_row("Wormhole Attack", "c2", 0.54, 0.03, False),
+        _attr_row("Wormhole Attack", "network", 0.28, 0.02, False),
+        _attr_row("Blackhole Attack", "physical", 0.79, 0.02, True),
+        _attr_row("Blackhole Attack", "network", 0.33, 0.02, False),
+        _attr_row("Blackhole Attack", "c2", 0.46, 0.02, False),
+        _attr_row("Flooding Attack", "network", 0.79, 0.01, True),
+        _attr_row("Flooding Attack", "physical", 0.38, 0.01, False),
+        _attr_row("Flooding Attack", "c2", 0.60, 0.03, False),
+        _attr_row("Sybil Attack", "c2", 0.65, 0.01, False),
+        _attr_row("Sybil Attack", "network", 0.87, 0.00, True),
+        _attr_row("Sybil Attack", "physical", 0.20, 0.01, False),
+    ]
+    attr_df = pd.DataFrame(rows)
+
+    expected = (
+        r"Sybil & $0.65 \pm 0.01$ & $\mathbf{0.87 \pm 0.00}$ & $0.20 \pm 0.01$ \\" "\n"
+        r"Flooding & $0.60 \pm 0.03$ & $\mathbf{0.79 \pm 0.01}$ & $0.38 \pm 0.01$ \\" "\n"
+        r"Blackhole & $0.46 \pm 0.02$ & $0.33 \pm 0.02$ & $\mathbf{0.79 \pm 0.02}$ \\" "\n"
+        r"Wormhole & $0.54 \pm 0.03$ & $0.28 \pm 0.02$ & $\mathbf{0.74 \pm 0.01}$ \\"
+    )
+    assert manuscript.emit_attribution_rows(attr_df) == expected
+
+
+def _bin_row(subset, scoring, mean, std):
+    return {
+        "subset": subset, "scoring": scoring,
+        "mean": mean, "std": std,
+        "ci_lo": mean - std, "ci_hi": mean + std,
+        "n_seeds": 3,
+    }
+
+
+def test_emit_binary_pgfplots_golden_string():
+    # Hand-built table using the paper's own fig:binary_auc znorm-column
+    # numbers (only "znorm" scoring rows matter; a "raw" row per subset is
+    # included to prove the emitter filters on `scoring`), fed in scrambled
+    # subset order to prove the emitter re-sorts to the paper's symbolic
+    # x-coordinate order (C2, Network, Physical, C2+N, C2+P, N+P, All three).
+    rows = [
+        _bin_row("all_three", "raw", 0.500, 0.100),
+        _bin_row("all_three", "znorm", 0.858, 0.028),
+        _bin_row("network_physical", "znorm", 0.859, 0.004),
+        _bin_row("c2_physical", "znorm", 0.754, 0.034),
+        _bin_row("c2_network", "znorm", 0.830, 0.021),
+        _bin_row("physical_only", "znorm", 0.611, 0.015),
+        _bin_row("network_only", "znorm", 0.761, 0.016),
+        _bin_row("c2_only", "znorm", 0.749, 0.027),
+    ]
+    bin_df = pd.DataFrame(rows)
+
+    expected = (
+        "coordinates {\n"
+        "    (C2, 0.749) +- (0, 0.027)\n"
+        "    (Network, 0.761) +- (0, 0.016)\n"
+        "    (Physical, 0.611) +- (0, 0.015)\n"
+        "    (C2+N, 0.830) +- (0, 0.021)\n"
+        "    (C2+P, 0.754) +- (0, 0.034)\n"
+        "    (N+P, 0.859) +- (0, 0.004)\n"
+        "    (All three, 0.858) +- (0, 0.028)\n"
+        "};\n"
+        r"\node[font=\small, anchor=south, fill=white, inner sep=1pt] at (axis cs:C2,0.809) {0.75};" "\n"
+        r"\node[font=\small, anchor=south, fill=white, inner sep=1pt] at (axis cs:Network,0.810) {0.76};" "\n"
+        r"\node[font=\small, anchor=south, fill=white, inner sep=1pt] at (axis cs:Physical,0.659) {0.61};" "\n"
+        r"\node[font=\small, anchor=south, fill=white, inner sep=1pt] at (axis cs:C2+N,0.884) {0.83};" "\n"
+        r"\node[font=\small, anchor=south, fill=white, inner sep=1pt] at (axis cs:C2+P,0.821) {0.75};" "\n"
+        r"\node[font=\small, anchor=south, fill=white, inner sep=1pt] at (axis cs:N+P,0.896) {0.86};" "\n"
+        r"\node[font=\small, anchor=south, fill=white, inner sep=1pt] at (axis cs:All three,0.919) {0.86};"
+    )
+    assert manuscript.emit_binary_pgfplots(bin_df, scoring="znorm") == expected

@@ -58,23 +58,17 @@ def _run_znorm_probe(seed: int, w2_timeout: float | None,
 def _cmd_manuscript_report(args: argparse.Namespace) -> int:
     seeds = tuple(int(s) for s in args.seeds.split(","))
     rebuild = TABLES_DIR / "rebuild"
-    manuscript.run_missing_seeds(seeds, w2_timeout=args.w2_timeout)
+    manuscript.build_manuscript_stats(
+        seeds=seeds, B=args.bootstrap, w2_timeout=args.w2_timeout, bootstrap_seed=0,
+        rebuild_dir=rebuild,
+    )
 
-    seed_frames = manuscript.load_seed_frames(seeds, rebuild)
-    binary_df = manuscript.build_binary_auc_table(
-        seed_frames, B=args.bootstrap, bootstrap_seed=0)
-    attribution_df = manuscript.build_attribution_table(
-        seed_frames, B=args.bootstrap, bootstrap_seed=0)
-
-    rebuild.mkdir(parents=True, exist_ok=True)
     binary_out = rebuild / "binary_auc.csv"
     attribution_out = rebuild / "manifold_attribution.csv"
-    binary_df.to_csv(binary_out, index=False)
-    write_provenance(binary_out, {"seeds": list(seeds), "bootstrap": args.bootstrap})
-    attribution_df.to_csv(attribution_out, index=False)
-    write_provenance(attribution_out, {"seeds": list(seeds), "bootstrap": args.bootstrap})
-
     print(f"wrote {binary_out}, {attribution_out}")
+    print(f"wrote {rebuild / 'paper_snippets' / 'attribution_table_rows.tex'}, "
+          f"{rebuild / 'paper_snippets' / 'binary_auc_pgfplots.tex'}")
+    print("wrote paper/MANUSCRIPT_STATS.md")
     return 0
 
 

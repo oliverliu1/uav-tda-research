@@ -1,0 +1,28 @@
+{
+  "params": {
+    "delta": 0.2,
+    "per_class": 200,
+    "seed": 1,
+    "top_k": 50,
+    "w2_timeout": 30.0
+  },
+  "stats": {
+    "c2": {
+      "mean": 0.068550483004634,
+      "std": 0.02991088838896597
+    },
+    "network": {
+      "mean": 0.008423798997049073,
+      "std": 0.00947027777559732
+    },
+    "physical": {
+      "mean": 0.013418395117665545,
+      "std": 0.01548365802177686
+    }
+  },
+  "timeout_counts": {
+    "n_timeouts_c2": 0,
+    "n_timeouts_network": 0,
+    "n_timeouts_physical": 0
+  }
+}

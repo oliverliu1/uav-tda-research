@@ -1,0 +1,19 @@
+{
+  "artifact": "znorm_stats_seed6.json",
+  "created_utc": "2026-09-21T22:05:13.688498+00:00",
+  "git_sha": "e10f0cc4a265fe957fafdfe17387031b551ea9d1",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "delta": 0.2,
+    "per_class": 200,
+    "seed": 6,
+    "top_k": 50,
+    "w2_timeout": 30.0
+  },
+  "uav_tda_version": "0.1.0"
+}

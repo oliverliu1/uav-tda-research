@@ -1,0 +1,28 @@
+{
+  "artifact": "manifold_attribution.csv",
+  "created_utc": "2026-09-21T22:14:59.515233+00:00",
+  "git_sha": "e10f0cc4a265fe957fafdfe17387031b551ea9d1",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "bootstrap": 2000,
+    "seeds": [
+      42,
+      7,
+      123,
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "w2_timeout": 30.0
+  },
+  "uav_tda_version": "0.1.0"
+}
