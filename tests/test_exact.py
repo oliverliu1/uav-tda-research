@@ -125,6 +125,32 @@ def test_direct_w2_flow_uses_given_delta(monkeypatch):
     assert approx_flag is False
 
 
+def test_direct_w2_flow_catches_python_exception_counts_as_timeout(monkeypatch, caplog):
+    """Isolation-probe diagnostic (2026-09-22, third intervention): a
+    Python-level exception from hera is caught (does NOT crash the worker),
+    logged with row_idx/manifold/dim context, and treated exactly like a
+    timeout for row-schema purposes -- distinguishing catchable Python
+    errors from uncatchable native crashes (which would still kill the
+    process outright, unaffected by this try/except).
+    """
+    def _raising_wdist(d1, d2, order, internal_p, delta):  # noqa: ARG001
+        raise RuntimeError("boom")
+
+    import gudhi.hera as hera_module
+    monkeypatch.setattr(hera_module, "wasserstein_distance", _raising_wdist)
+
+    diagram = np.array([[0.0, 0.1, 0.5]])
+    baselines_m = {0: np.array([[0.15, 0.55]])}
+    with caplog.at_level("ERROR", logger="uav_tda.exact"):
+        total, n_timeouts, approx_flag = exact.direct_w2_flow(
+            diagram, baselines_m, max_edge=1.0, max_hom_dim=0, row_idx=42, manifold="c2",
+        )
+    assert total == 0.0
+    assert n_timeouts == 1
+    assert approx_flag is True
+    assert any("row_idx=42" in r.message and "manifold=c2" in r.message for r in caplog.records)
+
+
 def test_run_shard_calls_direct_w2_flow_not_exact_w2_flow(tmp_path, monkeypatch):
     """Regression guard: the campaign path (`run_shard`) must use the
     unwrapped in-process `direct_w2_flow`, not `exact_w2_flow`'s
@@ -148,7 +174,8 @@ def test_run_shard_calls_direct_w2_flow_not_exact_w2_flow(tmp_path, monkeypatch)
     direct_calls = {"n": 0}
     exact_calls = {"n": 0}
 
-    def _fake_direct(diagram, baselines_m, max_edge, max_hom_dim, delta=exact.PRIMARY_DELTA):  # noqa: ARG001
+    def _fake_direct(diagram, baselines_m, max_edge, max_hom_dim, delta=exact.PRIMARY_DELTA,  # noqa: ARG001
+                      row_idx=None, manifold=None):  # noqa: ARG001
         direct_calls["n"] += 1
         return 1.0, 0, False
 

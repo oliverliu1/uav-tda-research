@@ -61,6 +61,7 @@ but is not on the campaign's hot path; shard-level resumability via
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -72,6 +73,8 @@ from . import config, manuscript, metrics, probe
 from .metrics import MANIFOLD_SUBSETS, NORMAL
 from .provenance import write_provenance
 from .workspace import Workspace
+
+log = logging.getLogger("uav_tda.exact")
 
 MANIFEST_NAME = "manifest.json"
 BASELINES_MANIFEST_NAME = "baselines_manifest.json"
@@ -217,6 +220,8 @@ def direct_w2_flow(
     max_edge: float,
     max_hom_dim: int,
     delta: float = PRIMARY_DELTA,
+    row_idx: "int | None" = None,
+    manifold: "str | None" = None,
 ) -> "tuple[float, int, bool]":
     """Direct in-process high-precision (delta<=0.01) W2, summed over dims.
 
@@ -243,18 +248,38 @@ def direct_w2_flow(
     diagrams is empirically ~0 (0/13 sampled flows timed out at 120s in the
     T3 pre-launch re-benchmark).
 
+    Per-dim hera calls are wrapped in try/except (2026-09-22, third
+    intervention -- isolation probe for the worker-churn investigation): a
+    Python-level exception from `gudhi.hera.wasserstein_distance` is caught,
+    logged (with `row_idx`/`manifold`/`dim` context when given) via
+    `uav_tda.exact`'s logger, contributes 0.0 to that dim, and is counted
+    exactly like a timeout (`n_timeouts` incremented, `approx_flag=True`) --
+    this is diagnostic AND safe: it distinguishes a catchable Python
+    exception (caught here, shard keeps going) from an uncatchable native
+    crash (segfault -- would still kill the worker process outright, since
+    no Python exception handler can intercept that).
+
     Returns ``(total, n_timeouts, approx_flag)`` for row-schema
-    compatibility with `exact_w2_flow` -- always ``(total, 0, False)`` since
-    no timeout fallback is attempted on this path.
+    compatibility with `exact_w2_flow`.
     """
     from gudhi.hera import wasserstein_distance as wdist  # noqa: PLC0415
 
     total = 0.0
+    n_timeouts = 0
+    approx_flag = False
     for dim in range(max_hom_dim + 1):
         flow_bd = probe._slice_dim(diagram, dim, max_edge)
         base_bd = baselines_m[dim]
-        total += float(wdist(flow_bd, base_bd, order=2.0, internal_p=2.0, delta=delta))
-    return float(total), 0, False
+        try:
+            total += float(wdist(flow_bd, base_bd, order=2.0, internal_p=2.0, delta=delta))
+        except Exception as exc:  # noqa: BLE001
+            log.error(
+                "direct_w2_flow: hera exception row_idx=%s manifold=%s dim=%d: %r",
+                row_idx, manifold, dim, exc,
+            )
+            n_timeouts += 1
+            approx_flag = True
+    return float(total), n_timeouts, approx_flag
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +366,7 @@ def run_shard(
             diagram = per_manifold_diagrams[m][i]
             total, n_t, approx = direct_w2_flow(
                 diagram, baselines[m], max_edge_lengths[m], config.MAX_HOM_DIM[m],
+                row_idx=i, manifold=m,
             )
             row[f"W2_{m}"] = total
             n_timeouts_total += n_t
