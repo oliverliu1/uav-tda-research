@@ -31,13 +31,27 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.metrics import roc_auc_score
 
-from . import config, probe
+from . import config, manuscript, metrics, probe
+from .metrics import MANIFOLD_SUBSETS, NORMAL
 from .provenance import write_provenance
 from .workspace import Workspace
 
 MANIFEST_NAME = "manifest.json"
 BASELINES_MANIFEST_NAME = "baselines_manifest.json"
+
+# paper/MULTI_SEED_VARIANCE.md, 3-seed published extended-abstract numbers
+# (raw scoring only -- the published abstract predates znorm scoring).
+PUBLISHED3_RAW = {
+    "c2_only": (0.7488, 0.0269),
+    "network_only": (0.7610, 0.0163),
+    "physical_only": (0.6114, 0.0152),
+    "c2_network": (0.8304, 0.0211),
+    "c2_physical": (0.7542, 0.0339),
+    "network_physical": (0.8594, 0.0043),
+    "all_three": (0.8577, 0.0276),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +213,11 @@ def run_shard(
     class before slicing [start, start+size). Writes
     `shard_{split}_{start:05d}.csv` and updates `manifest.json` atomically
     (write tmp, rename) marking the shard complete with its row count.
+
+    `row_idx` indexes into the ORIGINAL unfiltered `labels_{split}.csv`
+    (i.e. `outputs/labels_{split}.csv` row position), so it is
+    non-contiguous within a class-filtered shard (e.g. the val Normal-only
+    shards).
     """
     from joblib import Parallel, delayed
 
@@ -283,3 +302,219 @@ def run_exact_campaign(ws: Workspace, n_jobs: int = -1, shard_size: int = 500) -
         if _shard_key(split, start) in completed:
             continue
         run_shard(ws, exact_dir, split, start, size, baselines, class_filter=class_filter, n_jobs=n_jobs)
+
+
+# ---------------------------------------------------------------------------
+# Assembly (Task 2)
+# ---------------------------------------------------------------------------
+
+
+def _exact_dir(ws: Workspace) -> Path:
+    return ws.tables_dir / "rebuild" / "exact"
+
+
+def assemble_distances(exact_dir: Path, split: str) -> pd.DataFrame:
+    """Concatenate every completed `shard_{split}_*.csv` in start order.
+
+    Reads shard membership and row counts from `manifest.json` (rather
+    than a bare directory glob) so ordering is exact and resume-safe.
+    Raises ``ValueError`` if no shards are recorded for ``split``, or if
+    the concatenated row count doesn't match the manifest's recorded row
+    counts (a corrupted/partial shard file). Adds the 7 manifold-subset
+    columns (`metrics.MANIFOLD_SUBSETS`) as SUMS of the per-manifold `W2_*`
+    columns.
+    """
+    manifest = _read_manifest(exact_dir)
+    shard_infos = sorted(
+        (info for info in manifest.get("shards", {}).values() if info["split"] == split),
+        key=lambda info: info["start"],
+    )
+    if not shard_infos:
+        raise ValueError(f"assemble_distances: no completed shards recorded for split={split!r}")
+
+    frames = [pd.read_csv(exact_dir / info["path"]) for info in shard_infos]
+    df = pd.concat(frames, ignore_index=True)
+
+    expected_rows = sum(info["n_rows"] for info in shard_infos)
+    if len(df) != expected_rows:
+        raise ValueError(
+            f"assemble_distances: row count mismatch for split={split!r}: "
+            f"concatenated {len(df)} rows from {len(shard_infos)} shard(s) but "
+            f"manifest records {expected_rows}"
+        )
+
+    for subset, manifolds in MANIFOLD_SUBSETS.items():
+        df[f"W2_{subset}"] = sum(df[f"W2_{m}"] for m in manifolds)
+
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Definitive tables (Task 2)
+# ---------------------------------------------------------------------------
+
+
+def _binary_auc_table(scored_frames: "dict[str, pd.DataFrame]", B: int, bootstrap_seed: int) -> pd.DataFrame:
+    """7 subsets x {raw, znorm}: AUC + 95% CI over a single test-set cluster.
+
+    ``scored_frames`` maps scoring name ("raw"/"znorm") to the (already
+    z-normalized where applicable) test frame carrying `label`, the
+    per-manifold `W2_*` columns, the `MANIFOLD_SUBSETS` sum columns, and
+    `approx_flag`.
+    """
+    rows = []
+    for scoring, df in scored_frames.items():
+        y = (df["label"] != NORMAL).astype(int).to_numpy()
+        labels_multiclass = df["label"].to_numpy()
+        n_flows = len(df)
+        n_approx = int(df["approx_flag"].sum())
+        for subset in MANIFOLD_SUBSETS:
+            scores = df[f"W2_{subset}"].to_numpy()
+            auc = float(roc_auc_score(y, scores))
+            ci_lo, ci_hi = manuscript.bootstrap_mean_auc_ci(
+                per_seed=[(y, scores)], B=B, bootstrap_seed=bootstrap_seed,
+                labels_per_seed=[labels_multiclass],
+            )
+            rows.append({
+                "subset": subset, "scoring": scoring, "auc": auc,
+                "ci_lo": ci_lo, "ci_hi": ci_hi,
+                "n_flows": n_flows, "n_approx_flagged": n_approx,
+            })
+    # subset-major, scoring-minor ordering (matches paper/probe table conventions).
+    df_out = pd.DataFrame(rows)
+    subset_order = {s: i for i, s in enumerate(MANIFOLD_SUBSETS)}
+    df_out["_order"] = df_out["subset"].map(subset_order)
+    df_out = df_out.sort_values(["_order", "scoring"]).drop(columns="_order").reset_index(drop=True)
+    return df_out
+
+
+def _per_attack_auc_table(test_df: pd.DataFrame, B: int, bootstrap_seed: int) -> pd.DataFrame:
+    """4 attacks x 3 manifolds one-vs-rest AUC (raw scores) + CI + dominant flag."""
+    base = metrics.per_attack_auc(test_df)  # columns: attack_class, manifold, auc
+    label = test_df["label"].to_numpy()
+
+    rows = []
+    for _, r in base.iterrows():
+        attack, m = r["attack_class"], r["manifold"]
+        y = (label == attack).astype(int)
+        scores = test_df[f"W2_{m}"].to_numpy()
+        ci_lo, ci_hi = manuscript.bootstrap_mean_auc_ci(
+            per_seed=[(y, scores)], B=B, bootstrap_seed=bootstrap_seed,
+            labels_per_seed=[label],
+        )
+        rows.append({
+            "attack_class": attack, "manifold": m, "auc": float(r["auc"]),
+            "ci_lo": ci_lo, "ci_hi": ci_hi,
+        })
+    df_out = pd.DataFrame(rows)
+    df_out["dominant"] = False
+    for attack in df_out["attack_class"].unique():
+        mask = df_out["attack_class"] == attack
+        best_idx = df_out.loc[mask, "auc"].idxmax()
+        df_out.loc[best_idx, "dominant"] = True
+    return df_out
+
+
+def _exact_vs_probe_table(binary_raw_and_znorm: pd.DataFrame, ws: Workspace) -> pd.DataFrame:
+    """Join exact/probe-10-seed/published-3-seed binary AUCs per subset x scoring."""
+    probe_path = ws.tables_dir / "rebuild" / "binary_auc.csv"
+    probe_df = pd.read_csv(probe_path)
+
+    rows = []
+    for _, r in binary_raw_and_znorm.iterrows():
+        subset, scoring, exact_auc = r["subset"], r["scoring"], float(r["auc"])
+        probe_match = probe_df[(probe_df["subset"] == subset) & (probe_df["scoring"] == scoring)]
+        if len(probe_match):
+            probe_mean = float(probe_match["mean"].iloc[0])
+            probe_std = float(probe_match["std"].iloc[0])
+        else:
+            probe_mean, probe_std = float("nan"), float("nan")
+
+        if scoring == "raw":
+            pub_mean, pub_std = PUBLISHED3_RAW[subset]
+        else:
+            pub_mean, pub_std = float("nan"), float("nan")
+
+        rows.append({
+            "subset": subset, "scoring": scoring, "exact_auc": exact_auc,
+            "probe10_mean": probe_mean, "probe10_std": probe_std,
+            "published3_mean": pub_mean, "published3_std": pub_std,
+            "delta_exact_minus_probe": exact_auc - probe_mean,
+        })
+    return pd.DataFrame(rows)
+
+
+def build_exact_tables(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0) -> "dict[str, pd.DataFrame]":
+    """Assemble the exact-W2 campaign shards into the definitive report tables.
+
+    Reads the val (Normal-only, by campaign construction) and test frames
+    via `assemble_distances`, derives znorm stats from val
+    (`metrics.znorm_stats_from_val`), and builds:
+
+    - `exact_binary_auc`: 7 subsets x {raw, znorm} AUC + 95% bootstrap CI
+      (single-cluster bootstrap over the full test set).
+    - `exact_per_attack_auc`: 4 attacks x 3 manifolds one-vs-rest AUC (raw)
+      + CI + a `dominant` flag (the highest-AUC manifold per attack).
+    - `exact_vs_probe`: exact vs the Phase-4 10-seed probe mean/std
+      (`results/tables/rebuild/binary_auc.csv`) vs the published 3-seed
+      literals (raw scoring only; NaN for znorm), plus the exact-minus-probe
+      delta.
+
+    If any test flow has `approx_flag` set (a delta=0.01 retry fallback was
+    used on at least one homology dim), also returns
+    `exact_binary_auc_excl_flagged` -- the same binary table recomputed
+    with those flows dropped. Omitted entirely when no flow was flagged.
+    """
+    exact_dir = _exact_dir(ws)
+    val_df = assemble_distances(exact_dir, "val")
+    test_df = assemble_distances(exact_dir, "test")
+
+    stats = metrics.znorm_stats_from_val(val_df)
+    test_znorm_df = metrics.apply_znorm(test_df, stats)
+
+    binary_df = _binary_auc_table(
+        {"raw": test_df, "znorm": test_znorm_df}, B=B, bootstrap_seed=bootstrap_seed,
+    )
+    per_attack_df = _per_attack_auc_table(test_df, B=B, bootstrap_seed=bootstrap_seed)
+    vs_probe_df = _exact_vs_probe_table(binary_df, ws)
+
+    tables: "dict[str, pd.DataFrame]" = {
+        "exact_binary_auc": binary_df,
+        "exact_per_attack_auc": per_attack_df,
+        "exact_vs_probe": vs_probe_df,
+    }
+
+    n_flagged = int(test_df["approx_flag"].sum())
+    if n_flagged > 0:
+        clean_test = test_df[~test_df["approx_flag"]].reset_index(drop=True)
+        clean_test_znorm = metrics.apply_znorm(clean_test, stats)
+        tables["exact_binary_auc_excl_flagged"] = _binary_auc_table(
+            {"raw": clean_test, "znorm": clean_test_znorm}, B=B, bootstrap_seed=bootstrap_seed,
+        )
+
+    return tables
+
+
+_TABLE_FILENAMES = {
+    "exact_binary_auc": "exact_binary_auc.csv",
+    "exact_per_attack_auc": "exact_per_attack_auc.csv",
+    "exact_vs_probe": "exact_vs_probe.csv",
+    "exact_binary_auc_excl_flagged": "exact_binary_auc_excl_flagged.csv",
+}
+
+
+def write_exact_tables(ws: Workspace, tables: "dict[str, pd.DataFrame]") -> "dict[str, Path]":
+    """Write `build_exact_tables` output to `exact_dir/*.csv` + provenance sidecars.
+
+    Report generation (`paper/EXACT_RESULTS.md`) lands in Task 3 -- this
+    function is the seam it will call after (or alongside) writing tables.
+    """
+    exact_dir = _exact_dir(ws)
+    exact_dir.mkdir(parents=True, exist_ok=True)
+    paths: "dict[str, Path]" = {}
+    for name, df in tables.items():
+        out = exact_dir / _TABLE_FILENAMES[name]
+        df.to_csv(out, index=False)
+        write_provenance(out, {"table": name})
+        paths[name] = out
+    return paths

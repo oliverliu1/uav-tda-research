@@ -113,6 +113,33 @@ def _cmd_windowed_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_exact(args: argparse.Namespace) -> int:
+    """Phase 6 Track A: run (or resume) the sharded exact-W2 campaign."""
+    from . import exact
+
+    ws = _workspace_for(args)
+    ws.ensure()
+    exact.run_exact_campaign(ws, n_jobs=args.n_jobs, shard_size=args.shard_size)
+    return 0
+
+
+def _cmd_exact_report(args: argparse.Namespace) -> int:
+    """Phase 6 Track A: assemble campaign shards into definitive tables.
+
+    NOTE: `paper/EXACT_RESULTS.md` report generation lands in Task 3; this
+    subcommand currently stops after writing the CSV tables + provenance.
+    """
+    from . import exact
+
+    ws = _workspace_for(args)
+    ws.ensure()
+    tables = exact.build_exact_tables(ws, B=args.bootstrap)
+    paths = exact.write_exact_tables(ws, tables)
+    for name, path in paths.items():
+        print(f"wrote {path}")
+    return 0
+
+
 def _workspace_for(args: argparse.Namespace) -> Workspace:
     if getattr(args, "root", None):
         return Workspace.at(Path(args.root))
@@ -227,6 +254,18 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_args(p)
     p.add_argument("--bootstrap", type=int, default=2000)
     p.set_defaults(func=_cmd_windowed_report)
+
+    p = sub.add_parser("exact", help="Phase 6: sharded resumable exact-Wasserstein-2 campaign.")
+    _add_common_args(p)
+    p.add_argument("--n-jobs", type=int, default=-1)
+    p.add_argument("--shard-size", type=int, default=500)
+    p.set_defaults(func=_cmd_exact)
+
+    p = sub.add_parser("exact-report",
+                        help="Phase 6: assemble the exact-W2 campaign into definitive tables.")
+    _add_common_args(p)
+    p.add_argument("--bootstrap", type=int, default=2000)
+    p.set_defaults(func=_cmd_exact_report)
 
     p = sub.add_parser("prep", help="Phase 2: data prep and splits.")
     _add_common_args(p)
