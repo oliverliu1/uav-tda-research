@@ -282,6 +282,92 @@ def direct_w2_flow(
     return float(total), n_timeouts, approx_flag
 
 
+def _free_memory_mb() -> "float | None":
+    """Best-effort free-memory reading for shard-cadence telemetry.
+
+    Tries macOS `vm_stat` first (matches the diagnostic used to confirm
+    memory pressure as the worker-churn root cause), falling back to
+    `psutil.virtual_memory().available` if `vm_stat` is unavailable or
+    unparseable (e.g. non-macOS). Returns None if neither works --
+    telemetry is best-effort and must never be fatal to the campaign.
+    """
+    import re
+    import subprocess
+
+    try:
+        out = subprocess.check_output(["vm_stat"], text=True, timeout=5.0)
+        page_size_match = re.search(r"page size of (\d+) bytes", out)
+        free_match = re.search(r"Pages free:\s+(\d+)\.", out)
+        if page_size_match and free_match:
+            page_size = int(page_size_match.group(1))
+            free_pages = int(free_match.group(1))
+            return free_pages * page_size / (1024 * 1024)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import psutil  # noqa: PLC0415
+
+        return psutil.virtual_memory().available / (1024 * 1024)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _process_chunk_for_manifold(
+    ws_root: str,
+    split: str,
+    manifold: str,
+    chunk_indices: "list[int]",
+    baselines_m: dict,
+    max_edge: float,
+    max_hom_dim: int,
+    delta: float = PRIMARY_DELTA,
+) -> "list[dict]":
+    """Runs INSIDE a joblib worker (or in-process at n_jobs=1): opens ONLY
+    `{manifold}_{split}.pkl` itself, for ONLY this ~100-flow chunk, then
+    lets it be freed when the call returns.
+
+    Low-memory campaign profile (2026-09-22, third intervention). Root
+    cause confirmed via an n_jobs=1 isolation-probe smoke shard (completed
+    clean, 500/500 rows, 0 exceptions -- see
+    `.superpowers/sdd/2026-09-22-plan6-exact-w2-latency/task-3-report.md`,
+    "Update 3"): the PARENT process previously loaded the full split's
+    diagrams for all 3 manifolds (~250-350MB pickled EACH) and captured
+    that dict in a closure (`_flow_row`) submitted as ~500 individual
+    per-flow `delayed()` tasks. joblib/loky's automatic array-memmapping
+    only covers ndarrays passed as direct `delayed()` arguments, NOT
+    objects captured by closure -- so each of those ~500 closures had to be
+    independently cloudpickled, repeatedly re-serializing the large shared
+    dict and exhausting this workstation's already memory-pressured RAM
+    (confirmed: ~60MB free of 16GB, 4.9/6GB swap in use during the failed
+    launches), which is what actually killed/reaped loky worker processes
+    -- NOT a native crash in `gudhi.hera` (the isolation probe's
+    try/except in `direct_w2_flow` never fired).
+
+    This function instead takes only cheap-to-pickle arguments (a path
+    string, a manifold name, ~100 flow indices, one manifold's tiny
+    baseline dict) and loads the (large) diagram pkl itself, so the parent
+    never holds or transmits it and each worker's peak memory is bounded to
+    ~one manifold's pkl for the duration of one ~100-flow chunk.
+
+    Returns one dict per flow in `chunk_indices`:
+    `{row_idx, W2, n_timeouts, approx_flag}` (W2 for THIS manifold only --
+    `run_shard` combines the 3 manifolds' per-chunk results into rows).
+    """
+    import pickle
+    from pathlib import Path as _Path
+
+    ws = Workspace.at(_Path(ws_root))
+    diagrams = pickle.loads((ws.persistence_dir / f"{manifold}_{split}.pkl").read_bytes())
+    rows = []
+    for i in chunk_indices:
+        total, n_t, approx = direct_w2_flow(
+            diagrams[i], baselines_m, max_edge, max_hom_dim,
+            delta=delta, row_idx=i, manifold=manifold,
+        )
+        rows.append({"row_idx": int(i), "W2": total, "n_timeouts": n_t, "approx_flag": approx})
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Sharded runner + resumable manifest
 # ---------------------------------------------------------------------------
@@ -325,6 +411,7 @@ def run_shard(
     baselines: dict,
     class_filter: "str | None" = None,
     n_jobs: int = -1,
+    chunk_size: int = 100,
 ) -> Path:
     """Compute high-precision-W2 rows for flows [start, start+size) of ``split``.
 
@@ -334,12 +421,19 @@ def run_shard(
     `shard_{split}_{start:05d}.csv` and updates `manifest.json` atomically
     (write tmp, rename) marking the shard complete with its row count.
 
-    Per-flow W2 uses `direct_w2_flow` (in-process, no fork-timeout wrapper
-    -- see its docstring: nesting `probe._w2_with_timeout`'s fork inside a
-    joblib/loky worker was found unstable on macOS). `n_timeouts` and
-    `approx_flag` are therefore always 0/False on this path; they remain in
-    the row schema for compatibility with `exact_w2_flow`'s interface and
-    downstream table assembly.
+    LOW-MEMORY CHUNKED PROFILE (2026-09-22, third intervention -- see
+    `_process_chunk_for_manifold`'s docstring for the full root-cause
+    story): this function no longer loads the split's diagrams itself.
+    ``shard_idx`` is split into ``chunk_size``-flow chunks (default ~100);
+    for each of the 3 manifolds, one `delayed(_process_chunk_for_manifold)`
+    task per chunk is submitted -- each task opens ONLY that manifold's pkl,
+    for ONLY its chunk, inside the worker, then lets it be freed. Only
+    labels (a small CSV column) and each manifold's tiny baseline dict are
+    held/transmitted by the parent. `direct_w2_flow`'s per-dim try/except
+    means `n_timeouts`/`approx_flag` are no longer always 0/False on this
+    path -- they also count a caught Python-level hera exception (see its
+    docstring), on top of remaining in the schema for compatibility with
+    `exact_w2_flow`'s interface.
 
     `row_idx` indexes into the ORIGINAL unfiltered `labels_{split}.csv`
     (i.e. `outputs/labels_{split}.csv` row position), so it is
@@ -350,7 +444,7 @@ def run_shard(
 
     exact_dir.mkdir(parents=True, exist_ok=True)
     max_edge_lengths = json.loads((ws.outputs_dir / "max_edge_lengths.json").read_text())
-    labels, per_manifold_diagrams = _load_split_inputs(ws, split)
+    labels = pd.read_csv(ws.outputs_dir / f"labels_{split}.csv")["label"].to_numpy()
 
     if class_filter is not None:
         order_idx = np.where(labels == class_filter)[0]
@@ -358,25 +452,36 @@ def run_shard(
         order_idx = np.arange(len(labels))
     shard_idx = order_idx[start:start + size]
 
-    def _flow_row(i: int) -> dict:
-        row: dict = {"row_idx": int(i), "label": labels[i]}
+    chunks = [shard_idx[c:c + chunk_size] for c in range(0, len(shard_idx), chunk_size)]
+
+    parallel = Parallel(n_jobs=n_jobs)
+    per_manifold_rows: "dict[str, dict[int, dict]]" = {}
+    for m in config.MANIFOLDS:
+        chunk_results = parallel(
+            delayed(_process_chunk_for_manifold)(
+                str(ws.root), split, m, chunk.tolist(), baselines[m],
+                max_edge_lengths[m], config.MAX_HOM_DIM[m],
+            )
+            for chunk in chunks
+        )
+        per_manifold_rows[m] = {
+            r["row_idx"]: r for chunk_rows in chunk_results for r in chunk_rows
+        }
+
+    rows = []
+    for i in shard_idx:
+        i = int(i)
+        row: dict = {"row_idx": i, "label": labels[i]}
         n_timeouts_total = 0
         approx_flag_total = False
         for m in config.MANIFOLDS:
-            diagram = per_manifold_diagrams[m][i]
-            total, n_t, approx = direct_w2_flow(
-                diagram, baselines[m], max_edge_lengths[m], config.MAX_HOM_DIM[m],
-                row_idx=i, manifold=m,
-            )
-            row[f"W2_{m}"] = total
-            n_timeouts_total += n_t
-            approx_flag_total = approx_flag_total or approx
+            r = per_manifold_rows[m][i]
+            row[f"W2_{m}"] = r["W2"]
+            n_timeouts_total += r["n_timeouts"]
+            approx_flag_total = approx_flag_total or r["approx_flag"]
         row["n_timeouts"] = n_timeouts_total
         row["approx_flag"] = approx_flag_total
-        return row
-
-    parallel = Parallel(n_jobs=n_jobs)
-    rows = parallel(delayed(_flow_row)(int(i)) for i in shard_idx)
+        rows.append(row)
 
     columns = ["row_idx", "label", *[f"W2_{m}" for m in config.MANIFOLDS], "n_timeouts", "approx_flag"]
     df = pd.DataFrame(rows, columns=columns)
@@ -408,7 +513,16 @@ def run_exact_campaign(ws: Workspace, n_jobs: int = -1, shard_size: int = 500) -
     `manifest.json` are skipped, so re-invoking after any interruption
     picks up exactly where it left off, against the SAME persisted
     baselines.
+
+    Prints a shard-cadence + free-memory telemetry line after each shard
+    (2026-09-22, third intervention -- `_free_memory_mb`) so a `nohup`-ed
+    campaign's log carries a running record of s/flow and available RAM
+    (severe memory pressure was the confirmed root cause of the earlier
+    worker-churn failures; this makes any recurrence visible without
+    needing a separate diagnostic pass).
     """
+    import time
+
     exact_dir = ws.tables_dir / "rebuild" / "exact"
     exact_dir.mkdir(parents=True, exist_ok=True)
     baselines = ensure_baselines(ws, exact_dir)
@@ -429,7 +543,16 @@ def run_exact_campaign(ws: Workspace, n_jobs: int = -1, shard_size: int = 500) -
     for split, start, size, class_filter in plan:
         if _shard_key(split, start) in completed:
             continue
+        t0 = time.time()
         run_shard(ws, exact_dir, split, start, size, baselines, class_filter=class_filter, n_jobs=n_jobs)
+        dt = time.time() - t0
+        free_mb = _free_memory_mb()
+        free_str = f"{free_mb:.0f}MB" if free_mb is not None else "unknown"
+        print(
+            f"[exact] shard {split}_{start:05d} complete in {dt:.1f}s "
+            f"({dt / max(size, 1):.3f} s/flow) free_mem={free_str}",
+            flush=True,
+        )
 
 
 # ---------------------------------------------------------------------------

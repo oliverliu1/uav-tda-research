@@ -151,6 +151,57 @@ def test_direct_w2_flow_catches_python_exception_counts_as_timeout(monkeypatch, 
     assert any("row_idx=42" in r.message and "manifold=c2" in r.message for r in caplog.records)
 
 
+def test_free_memory_mb_returns_float_or_none():
+    """Best-effort telemetry helper (2026-09-22, third intervention): must
+    never raise, and returns either a float or None (environment-dependent
+    -- vm_stat on macOS, psutil fallback elsewhere, None if both fail).
+    """
+    result = exact._free_memory_mb()
+    assert result is None or isinstance(result, float)
+
+
+def test_run_shard_chunks_and_combines_rows_correctly(tmp_path, monkeypatch):
+    """Low-memory chunked profile (2026-09-22, third intervention):
+    `run_shard` with `chunk_size` smaller than the shard size must still
+    produce exactly one correctly-combined row per flow, per manifold,
+    regardless of how flows were split into chunks.
+    """
+    import pickle
+
+    ws = _make_workspace(tmp_path)
+    n = 5
+    pd.DataFrame({"label": ["Normal Traffic"] * n}).to_csv(
+        ws.outputs_dir / "labels_test.csv", index=False
+    )
+    ws.persistence_dir.mkdir(parents=True, exist_ok=True)
+    for m in config.MANIFOLDS:
+        diagrams = [np.array([[0.0, 0.1, 0.5]]) for _ in range(n)]
+        (ws.persistence_dir / f"{m}_test.pkl").write_bytes(pickle.dumps(diagrams))
+
+    baselines = {m: {k: np.array([[0.15, 0.55]]) for k in range(config.MAX_HOM_DIM[m] + 1)}
+                 for m in config.MANIFOLDS}
+
+    def _fake_direct(diagram, baselines_m, max_edge, max_hom_dim, delta=exact.PRIMARY_DELTA,  # noqa: ARG001
+                      row_idx=None, manifold=None):
+        # deterministic, identifiable per (row_idx, manifold)
+        return float(row_idx) * 10.0 + (0.1 if manifold == "network" else 0.2 if manifold == "physical" else 0.0), 0, False
+
+    monkeypatch.setattr(exact, "direct_w2_flow", _fake_direct)
+
+    exact_dir = ws.tables_dir / "rebuild" / "exact"
+    shard_path = exact.run_shard(ws, exact_dir, "test", 0, n, baselines, n_jobs=1, chunk_size=2)
+
+    df = pd.read_csv(shard_path)
+    assert list(df["row_idx"]) == list(range(n))
+    for i in range(n):
+        row = df[df["row_idx"] == i].iloc[0]
+        assert row["W2_c2"] == pytest.approx(i * 10.0)
+        assert row["W2_network"] == pytest.approx(i * 10.0 + 0.1)
+        assert row["W2_physical"] == pytest.approx(i * 10.0 + 0.2)
+        assert row["n_timeouts"] == 0
+        assert row["approx_flag"] == False  # noqa: E712
+
+
 def test_run_shard_calls_direct_w2_flow_not_exact_w2_flow(tmp_path, monkeypatch):
     """Regression guard: the campaign path (`run_shard`) must use the
     unwrapped in-process `direct_w2_flow`, not `exact_w2_flow`'s
