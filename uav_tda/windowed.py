@@ -21,6 +21,68 @@ from .workspace import Workspace
 
 log = logging.getLogger("uav_tda.windowed")
 
+# Quoted from `.superpowers/sdd/2026-09-21-plan5-windowed-variant/task-1-report.md`'s
+# Step-5 benchmark gate (W=200, n_trials=3, real test-split windows, measured
+# 2026-09-21) -- NOT recomputed here. Re-running `benchmark_exact_rips` at
+# report-build time would add ~46s to every `windowed-report` invocation and
+# would itself be subject to machine/load timing variance; the gate's
+# decision is already frozen into `config.WINDOWED_SPARSE`, so this dict only
+# documents the medians that motivated it, for the report's config header.
+BENCHMARK_GATE_MEDIANS_S = {
+    # manifold -> (median exact-Rips seconds at W=200, WINDOWED_SPARSE value)
+    "c2": (0.744, None),
+    "network": (10.084, 0.5),
+    "physical": (0.204, None),
+}
+
+# Three deviations from the original task-2/task-3 briefs, carried forward
+# into the report per the task-4 brief's explicit instruction to disclose
+# them. See task-2-report.md / task-3-report.md for the full narratives.
+WINDOWED_DEVIATIONS = [
+    (
+        "Contamination detection threshold",
+        "The brief's proposed 95th-percentile-of-a-standard-normal "
+        "per-manifold-sum threshold was marked wrong in the brief itself, "
+        "and `run_windowed`'s true val-window 95th-percentile threshold is "
+        "not persisted past its own coupled invocation (only mean/std are "
+        "saved to run metadata). `build_contamination_table` substitutes an "
+        "EMPIRICAL near-normal reference population per W (windows with "
+        "attack_frac <= 0.05, pooled across both arms) and takes its 95th "
+        "percentile of Z2_all_three as that W's detection threshold -- an "
+        "empirical stand-in for the canonical val threshold, not the val "
+        "threshold itself. See task-3-report.md, \"Threshold-design "
+        "deviation\".",
+    ),
+    (
+        "Attribution NaN-guard",
+        "`build_windowed_attribution_table` can encounter an attack class "
+        "that is never a window majority at some W (spec §1: Blackhole is "
+        "interleaved with Normal at flow granularity, median run length 1, "
+        "so essentially every Blackhole-era window is mixed) -- one-vs-rest "
+        "AUC is then undefined (single-class y). Such (w, attack, manifold) "
+        "cells get mean=NaN / ci=(NaN, NaN) instead of raising, and are "
+        "excluded from that (w, attack) group's dominance vote. This is a "
+        "robustness addition beyond the original brief, added because a "
+        "full 80-run campaign hits exactly the case the spec flags as "
+        "expected; the NaN rows are a data property (§4.3/§4.4 below), not "
+        "a code bug.",
+    ),
+    (
+        "Per-flow arm timing: two-point-slope marginal cost",
+        "The matched-compute frontier's per-flow row needs a per-decision "
+        "marginal cost comparable to the windowed arm's "
+        "(total_s - baseline_s) / n_windows. `_time_per_flow_probe` times "
+        "`probe.run_probe` at two sample sizes (per_class=1 and "
+        "per_class=4) and returns the slope (t_big - t_small) / "
+        "(n_big - n_small), netting out the one-time cost every "
+        "`run_probe` call pays (loading persistence diagrams + baseline "
+        "barcodes from disk) so the reported number is the true marginal "
+        "per-flow decision cost, not an amortized-with-setup one -- the "
+        "same marginal-vs-amortized principle the FRONTIER COST ruling "
+        "applies to the windowed arm's baseline_s exclusion.",
+    ),
+]
+
 
 def make_windows(n_rows: int, w: int, order=None) -> list:
     """Return index arrays for non-overlapping windows of w rows.
@@ -810,6 +872,52 @@ _TABLE_FILENAMES = {
 }
 
 
+def emit_frontier_pgfplots(frontier_df) -> str:
+    """Render `build_frontier_table` output as a pgfplots `\\addplot coordinates`
+    block for the spec-3.4 matched-compute frontier figure (log-x-friendly:
+    x = marginal per-decision seconds, y = znorm all_three AUC).
+
+    Canonical point order (independent of the input DataFrame's row order,
+    so callers don't have to pre-sort): the `per_flow` row first, then the
+    windowed rows W ascending -- this puts the manuscript's existing
+    per-flow baseline first as the reference point, with windowed
+    alternatives following in increasing window size. One coordinate line
+    per point: ``({marginal_s:.3g}, {auc_mean:.3f}) +- (0, {auc_std:.3f})``.
+
+    One `\\node` label per point, in the SAME order as the coordinates
+    block (so the two blocks can be visually paired while authoring/
+    reviewing the .tex), positioned at the top of that point's error bar
+    (``y = auc_mean + auc_std``, no extra offset -- there is no existing
+    hand-authored frontier figure to calibrate a label gap against, unlike
+    `manuscript._NODE_Y_OFFSET`): ``W=25``/``W=50``/``W=100``/``W=200`` for
+    the windowed rows, ``per-flow`` for the per-flow row.
+    """
+    import pandas as pd
+
+    per_flow = frontier_df[frontier_df["row"] == _PER_FLOW_ROW]
+    windowed_rows = frontier_df[frontier_df["row"] != _PER_FLOW_ROW].sort_values("w")
+    ordered = pd.concat([per_flow, windowed_rows], ignore_index=True)
+
+    coord_lines = [r"\addplot coordinates {"]
+    for _, row in ordered.iterrows():
+        coord_lines.append(
+            f"    ({row['marginal_s']:.3g}, {row['auc_mean']:.3f}) "
+            f"+- (0, {row['auc_std']:.3f})"
+        )
+    coord_lines.append("};")
+
+    node_lines = []
+    for _, row in ordered.iterrows():
+        label = "per-flow" if row["row"] == _PER_FLOW_ROW else f"W={int(row['w'])}"
+        y = row["auc_mean"] + row["auc_std"]
+        node_lines.append(
+            r"\node[font=\small, anchor=south] at "
+            f"(axis cs:{row['marginal_s']:.3g},{y:.3f}) {{{label}}};"
+        )
+
+    return "\n".join(coord_lines + node_lines)
+
+
 def write_windowed_tables(ws: Workspace, tables: dict, B: int = None,
                            bootstrap_seed: int = None) -> dict:
     """Write the four windowed tables to `.../windowed/*.csv` + provenance sidecars."""
@@ -825,3 +933,435 @@ def write_windowed_tables(ws: Workspace, tables: dict, B: int = None,
         write_provenance(out, params)
         paths[name] = out
     return paths
+
+
+# --- Task 4: report generator -------------------------------------------------
+
+def windowed_determinism_check(ws: Workspace) -> dict:
+    """Compare `W2_<manifold>` columns across ordered-arm repeats, per W.
+
+    Spec §2.2/§3.5: if a manifold's `WINDOWED_SPARSE` value is `None`
+    (exact Rips), its ordered-arm repeats at a given W should be
+    bit-identical (same FlowID order -> same point clouds -> same exact
+    simplex tree -> same persistence diagram every time); `network` is
+    sparse (eps=0.5) and is expected to differ run-to-run (the sparse-Rips
+    process-noise class documented in Phases 2-3, memory:
+    sparse-rips-nondeterminism). Returns
+    ``{w: {manifold: {"identical_across_all_repeats": bool, "n_repeats": int}}}``
+    -- an ASSERTION-GRADE check for c2/physical (WINDOWED_SPARSE exact),
+    reported as a determinism RESULT for network (not asserted).
+    """
+    import numpy as np
+
+    runs_by_w: dict = {}
+    for r in load_all_runs(ws):
+        if r["arm"] != "ordered":
+            continue
+        runs_by_w.setdefault(r["w"], []).append(r)
+
+    result: dict = {}
+    for w, runs in sorted(runs_by_w.items()):
+        runs_sorted = sorted(runs, key=lambda r: r["k"])
+        per_manifold = {}
+        for m in config.MANIFOLDS:
+            col = f"W2_{m}"
+            cols = [r["window_df"][col].to_numpy() for r in runs_sorted]
+            identical = all(np.array_equal(cols[0], c) for c in cols[1:])
+            per_manifold[m] = {
+                "identical_across_all_repeats": bool(identical),
+                "n_repeats": len(runs_sorted),
+            }
+        result[w] = per_manifold
+    return result
+
+
+def windowed_blackhole_summary(ws: Workspace) -> dict:
+    """Per-W count/fraction of windows whose majority label is Blackhole
+    (ordered arm; spec §1's flagged case: Blackhole median flow-run-length
+    is 1, so it is expected to rarely-or-never be a window majority even at
+    the smallest W). Returns ``{w: {"n_blackhole_majority": int, "n_windows":
+    int, "frac": float}}``.
+    """
+    import pandas as pd
+
+    runs_by_w: dict = {}
+    for r in load_all_runs(ws):
+        if r["arm"] != "ordered":
+            continue
+        runs_by_w.setdefault(r["w"], []).append(r["window_df"])
+
+    result = {}
+    for w, dfs in sorted(runs_by_w.items()):
+        pooled = pd.concat(dfs, ignore_index=True)
+        n_windows = len(pooled)
+        n_bh = int((pooled["majority_label"] == "Blackhole Attack").sum())
+        result[w] = {
+            "n_blackhole_majority": n_bh, "n_windows": n_windows,
+            "frac": (n_bh / n_windows) if n_windows else float("nan"),
+        }
+    return result
+
+
+_ATTRIBUTION_ROW_ORDER = ("Sybil Attack", "Flooding Attack", "Blackhole Attack", "Wormhole Attack")
+_EXPECTED_DOMINANT_MANIFOLD = {
+    "Sybil Attack": "network", "Flooding Attack": "network",
+    "Blackhole Attack": "physical", "Wormhole Attack": "physical",
+}
+
+
+def _fmt_ci(mean, std, ci_lo, ci_hi) -> str:
+    import math
+    if any(isinstance(v, float) and math.isnan(v) for v in (mean, std, ci_lo, ci_hi)):
+        return "NaN (undefined -- see §6)"
+    return f"{mean:.4f} ± {std:.4f}  [{ci_lo:.4f}, {ci_hi:.4f}]"
+
+
+def _render_windowed_report(ws: Workspace, tables: dict, determinism: dict,
+                             blackhole: dict) -> str:
+    import numpy as np
+    import pandas as pd
+
+    detection = tables["detection"]
+    attribution = tables["attribution"]
+    contamination = tables["contamination"]
+    frontier = tables["frontier"]
+
+    lines: list = []
+    lines.append("# WINDOWED_RESULTS: Time-Windowed Multi-Manifold Persistence (Phase 5)")
+    lines.append("")
+    max_n_runs = int(detection["n_runs"].max()) if len(detection) else 0
+    lines.append(
+        "_Generated by `uav-tda windowed-report` (`uav_tda/windowed.py`) from "
+        "`results/tables/rebuild/windowed/run_w*.csv` (up to "
+        f"{max_n_runs} runs per (W, arm) group) and the four `windowed_*`/"
+        "`compute_frontier`/`contamination_curve` CSVs it builds from them. "
+        "Every number below is machine-generated from those tables; this "
+        "report makes no claims of its own beyond restating and interpreting "
+        "them._"
+    )
+    lines.append("")
+
+    # --- 1. Configuration ---------------------------------------------------
+    lines.append("## 1. Configuration")
+    lines.append("")
+    lines.append(
+        "- Design spec: `docs/superpowers/specs/2026-09-21-windowed-variant-design.md` "
+        "(binding)."
+    )
+    lines.append(
+        f"- Window grid: W ∈ {list(config.WINDOW_SIZES)}; "
+        f"{config.WINDOWED_REPEATS} FlowID-order repeats + "
+        f"{len(config.WINDOWED_SHUFFLE_SEEDS)} seeded shuffle controls per W "
+        f"= {len(config.WINDOW_SIZES) * (config.WINDOWED_REPEATS + len(config.WINDOWED_SHUFFLE_SEEDS))} "
+        "total campaign runs."
+    )
+    lines.append(
+        "- Data facts (spec §1): UAVIDS-2025 has no timestamp column -- "
+        "windows are FlowID-order windows (a manuscript disclosure item). "
+        "Label run-length structure is extreme: median run Wormhole 13,043 "
+        "· Flooding 2,928 · Sybil 2,101 · Normal 2 · **Blackhole 1**. Only "
+        "1 of 183 W=100 test windows in FlowID order is pure-normal "
+        "(attack_frac == 0) -- see task-2-report.md."
+    )
+    lines.append("")
+    lines.append("**Exact-Rips benchmark gate** (`config.WINDOWED_SPARSE`, quoted from "
+                  "the task-1 benchmark gate, W=200, n_trials=3, real test-split windows, "
+                  "measured 2026-09-21 -- not recomputed by this report):")
+    lines.append("")
+    lines.append("| Manifold | Median exact-Rips seconds (W=200) | ≤ 2s budget? | WINDOWED_SPARSE |")
+    lines.append("| :--- | ---: | :---: | :--- |")
+    for m, (median_s, sparse) in BENCHMARK_GATE_MEDIANS_S.items():
+        within = "yes" if median_s <= 2.0 else "no"
+        lines.append(f"| {m} | {median_s:.3f} | {within} | `{sparse!r}` |")
+    lines.append("")
+    lines.append(
+        "Consequence: c2 and physical windowed diagrams are bit-reproducible "
+        "(exact Rips); network stays sparse (ε=0.5) because H2 homology over "
+        "10 dense features blew the 2s budget (first trial 35.1s). See §7 "
+        "(Determinism) for the measured campaign-scale confirmation."
+    )
+    lines.append("")
+    lines.append("**Documented deviations from the original task briefs:**")
+    lines.append("")
+    for i, (title, body) in enumerate(WINDOWED_DEVIATIONS, 1):
+        lines.append(f"{i}. **{title}.** {body}")
+    lines.append("")
+    lines.append("**Status: pending author sign-off.** Every table and number in this "
+                  "report is machine-generated from the campaign CSVs under "
+                  "`results/tables/rebuild/windowed/`; none of it has been reviewed "
+                  "or approved for inclusion in the manuscript.")
+    lines.append("")
+
+    # --- 2. Detection table ---------------------------------------------------
+    lines.append("## 2. Detection: window-level binary AUC (all_three subset, headline)")
+    lines.append("")
+    lines.append(
+        "Full table (7 subsets × 2 scorings × 4 W × 2 arms = up to 112 rows) is "
+        "`results/tables/rebuild/windowed/windowed_detection.csv`. Headline rows "
+        "below restrict to `subset=all_three`."
+    )
+    lines.append("")
+    lines.append("| W | Arm | Scoring | AUC (mean ± std [95% CI]) | n_runs |")
+    lines.append("| ---: | :--- | :--- | ---: | ---: |")
+    headline = detection[detection["subset"] == "all_three"].sort_values(["w", "arm", "scoring"])
+    for _, row in headline.iterrows():
+        lines.append(
+            f"| {int(row['w'])} | {row['arm']} | {row['scoring']} "
+            f"| {_fmt_ci(row['mean'], row['std'], row['ci_lo'], row['ci_hi'])} "
+            f"| {int(row['n_runs'])} |"
+        )
+    lines.append("")
+    pure_block = ("Flooding Attack", "Sybil Attack", "Wormhole Attack")
+    lines.append(
+        f"Pure-block attacks ({', '.join(a.replace(' Attack', '') for a in pure_block)}) "
+        "form huge contiguous FlowID runs (spec §1), so their windows are "
+        "overwhelmingly pure-majority; the ordered-arm `all_three`/znorm row "
+        "above is the sanity-gate quantity (expected ≥ 0.85 at every W per "
+        "the task-4 brief's gate)."
+    )
+    lines.append("")
+
+    # --- 3. Frontier -----------------------------------------------------------
+    lines.append("## 3. Matched-compute frontier (spec §3.4, the manuscript's lead figure)")
+    lines.append("")
+    lines.append("| Row | AUC (znorm all_three, mean ± std [95% CI]) | Marginal s/decision | Baseline (fixed) s | n_runs |")
+    lines.append("| :--- | ---: | ---: | ---: | ---: |")
+    per_flow_row = frontier[frontier["row"] == _PER_FLOW_ROW]
+    w_rows = frontier[frontier["row"] != _PER_FLOW_ROW].sort_values("w")
+    ordered_frontier = pd.concat([per_flow_row, w_rows], ignore_index=True)
+    for _, row in ordered_frontier.iterrows():
+        label = "per-flow" if row["row"] == _PER_FLOW_ROW else f"W={int(row['w'])}"
+        baseline_str = "n/a" if (isinstance(row["baseline_s"], float) and np.isnan(row["baseline_s"])) \
+            else f"{row['baseline_s']:.4f}"
+        lines.append(
+            f"| {label} "
+            f"| {_fmt_ci(row['auc_mean'], row['auc_std'], row['ci_lo'], row['ci_hi'])} "
+            f"| {row['marginal_s']:.4g} | {baseline_str} | {row['n_runs']} |"
+        )
+    lines.append("")
+    if len(w_rows) >= 2:
+        marg = w_rows.sort_values("w")["marginal_s"].to_numpy()
+        monotone = bool(np.all(np.diff(marg) >= 0))
+        lines.append(
+            f"Marginal per-decision cost is {'monotonically non-decreasing' if monotone else 'NOT monotone'} "
+            "in window count W (sanity gate, spec §3.4 frontier x-axis)."
+        )
+        lines.append("")
+    if len(per_flow_row) and len(w_rows):
+        pf_cost = float(per_flow_row.iloc[0]["marginal_s"])
+        cheapest_w = w_rows.sort_values("marginal_s").iloc[0]
+        speedup = pf_cost / float(cheapest_w["marginal_s"]) if cheapest_w["marginal_s"] else float("nan")
+        lines.append(
+            f"Cheapest windowed row (W={int(cheapest_w['w'])}) is "
+            f"{speedup:.1f}x the per-flow marginal decision cost "
+            f"({pf_cost:.4g}s/flow vs {cheapest_w['marginal_s']:.4g}s/window)."
+        )
+        lines.append("")
+    lines.append(
+        "pgfplots snippet: `results/tables/rebuild/paper_snippets/"
+        "windowed_frontier_pgfplots.tex` (from `emit_frontier_pgfplots`, generated "
+        "fresh from `compute_frontier.csv` at report-build time)."
+    )
+    lines.append("")
+
+    # --- 4. Contamination -------------------------------------------------------
+    lines.append("## 4. Contamination curve (spec §3.2)")
+    lines.append("")
+    lines.append(
+        "**Threshold-design note:** `run_windowed`'s true val-window 95th-percentile "
+        "threshold is not persisted past its own invocation. `detection_rate` below "
+        "uses an EMPIRICAL substitute -- per W, the 95th percentile of "
+        "`Z2_all_three` over windows with `attack_frac <= 0.05` (bin \"0\" plus "
+        "near-zero contamination, pooled across arms). Flag this wherever these "
+        "numbers are cited (see Deviation 1, §1)."
+    )
+    lines.append("")
+    lines.append("| W | Bin | n_windows | mean raw all_three | mean znorm all_three | threshold | detection_rate |")
+    lines.append("| ---: | :--- | ---: | ---: | ---: | ---: | ---: |")
+    agg = contamination[contamination["majority_class"] == "all"].sort_values(["w", "bin_lo"])
+    for _, row in agg.iterrows():
+        lines.append(
+            f"| {int(row['w'])} | {row['bin']} | {int(row['n_windows'])} "
+            f"| {row['mean_raw_all_three']:.4f} | {row['mean_znorm_all_three']:.4f} "
+            f"| {row['threshold']:.4f} | {row['detection_rate']:.4f} |"
+        )
+    lines.append("")
+    bin0 = agg[agg["bin"] == "0"]
+    if len(bin0):
+        thinnest = bin0.sort_values("n_windows").iloc[0]
+        lines.append(
+            f"**Thin bin-0 discussion:** the smallest ordered-arm pure-normal "
+            f"(`attack_frac == 0`) window population across W is n={int(thinnest['n_windows'])} "
+            f"(at W={int(thinnest['w'])}), consistent with task-2's W=100 finding of only "
+            "1/183 pure-normal windows (Normal median flow-run-length is 2). Bin-0 "
+            "detection-rate numbers at small n are correspondingly low-power; lean "
+            "on the near-zero-but-nonzero bins and the majority-label ground truth "
+            "instead of treating bin-0 as a well-populated negative-class reference."
+        )
+        lines.append("")
+    lines.append("**Blackhole mixed-window finding (quantified):**")
+    lines.append("")
+    lines.append("| W | Blackhole-majority windows | Total windows (ordered arm) | Fraction |")
+    lines.append("| ---: | ---: | ---: | ---: |")
+    for w, d in sorted(blackhole.items()):
+        lines.append(f"| {w} | {d['n_blackhole_majority']} | {d['n_windows']} | {d['frac']:.5f} |")
+    lines.append("")
+    any_bh_majority = any(d["n_blackhole_majority"] > 0 for d in blackhole.values())
+    lines.append(
+        ("Blackhole is a window majority at least once in this campaign." if any_bh_majority
+         else "Blackhole is **never** a window majority at any W in this campaign, at any "
+              "granularity down to W=25 -- exactly the spec §1 prediction (Blackhole "
+              "median flow-run-length 1, always interleaved with Normal). This is a "
+              "FINDING, not a code defect: it is the direct, expected consequence of "
+              "aggregating flow-level labels into fixed-size windows when an attack's "
+              "flows never cluster contiguously.")
+    )
+    lines.append("")
+
+    # --- 5. Shuffle-control comparison -------------------------------------------
+    lines.append("## 5. Shuffle-control comparison (spec §2.1)")
+    lines.append("")
+    lines.append(
+        "Per spec §2.1: AUC preserved under shuffle ⇒ ordering carries no signal "
+        "(windowing measures set-composition only); AUC drops under shuffle ⇒ "
+        "temporal (FlowID-order) locality is load-bearing. Headline subset=all_three, "
+        "scoring=znorm:"
+    )
+    lines.append("")
+    lines.append("| W | Ordered AUC | Shuffled AUC | Δ (ordered − shuffled) | Interpretation |")
+    lines.append("| ---: | ---: | ---: | ---: | :--- |")
+    hz = detection[(detection["subset"] == "all_three") & (detection["scoring"] == "znorm")]
+    for w in sorted(hz["w"].unique()):
+        o_row = hz[(hz["w"] == w) & (hz["arm"] == "ordered")]
+        s_row = hz[(hz["w"] == w) & (hz["arm"] == "shuffled")]
+        if not len(o_row) or not len(s_row):
+            continue
+        o_mean = float(o_row.iloc[0]["mean"])
+        s_mean = float(s_row.iloc[0]["mean"])
+        delta = o_mean - s_mean
+        interp = ("ordering carries no signal" if abs(delta) < 0.01
+                  else ("temporal locality load-bearing (ordered stronger)" if delta > 0
+                        else "shuffled stronger (unexpected -- review)"))
+        lines.append(f"| {int(w)} | {o_mean:.4f} | {s_mean:.4f} | {delta:+.4f} | {interp} |")
+    lines.append("")
+
+    # --- 6. Attribution survival ------------------------------------------------
+    lines.append("## 6. Attribution survival (spec §3.3)")
+    lines.append("")
+    lines.append(
+        "Per-attack one-vs-rest AUC per manifold, ordered arm, window-majority "
+        "labels. Per-flow arm expectation (spec/PROJECT_BRIEF Phase-4 finding): "
+        "Sybil→network, Flooding→network, Blackhole→physical, Wormhole→physical. "
+        "NaN rows are a FINDING (attack never a window majority at that W -- "
+        "one-vs-rest AUC undefined), not an error; see Deviation 2, §1."
+    )
+    lines.append("")
+    lines.append("| W | Attack | Manifold | AUC (mean ± std [95% CI]) | Dominant? |")
+    lines.append("| ---: | :--- | :--- | ---: | :---: |")
+    for w in sorted(attribution["w"].unique()):
+        for attack in _ATTRIBUTION_ROW_ORDER:
+            for m in config.MANIFOLDS:
+                sub = attribution[(attribution["w"] == w) & (attribution["attack_class"] == attack)
+                                   & (attribution["manifold"] == m)]
+                if not len(sub):
+                    continue
+                row = sub.iloc[0]
+                mark = "**yes**" if bool(row["dominant"]) else ""
+                lines.append(
+                    f"| {int(w)} | {attack} | {m} "
+                    f"| {_fmt_ci(row['mean'], row['std'], row['ci_lo'], row['ci_hi'])} | {mark} |"
+                )
+    lines.append("")
+    lines.append("**Flip/NaN summary vs. per-flow expectation:**")
+    lines.append("")
+    for attack in _ATTRIBUTION_ROW_ORDER:
+        expected = _EXPECTED_DOMINANT_MANIFOLD[attack]
+        per_w = []
+        for w in sorted(attribution["w"].unique()):
+            dom_row = attribution[(attribution["w"] == w) & (attribution["attack_class"] == attack)
+                                   & (attribution["dominant"])]
+            all_nan = attribution[(attribution["w"] == w) & (attribution["attack_class"] == attack)]
+            if len(dom_row):
+                dom = dom_row.iloc[0]["manifold"]
+                flag = "" if dom == expected else " **FLIP**"
+                per_w.append(f"W={int(w)}: {dom}{flag}")
+            elif len(all_nan) and all_nan["mean"].isna().all():
+                per_w.append(f"W={int(w)}: NaN (never a window majority)")
+            else:
+                per_w.append(f"W={int(w)}: no dominant manifold recorded")
+        lines.append(f"- {attack} (per-flow expectation: {expected}): " + "; ".join(per_w))
+    lines.append("")
+
+    # --- 7. Determinism ----------------------------------------------------------
+    lines.append("## 7. Determinism (spec §2.2/§3.5)")
+    lines.append("")
+    lines.append(
+        "Ordered-arm repeats compared column-by-column "
+        f"(`W2_<manifold>`) across all {config.WINDOWED_REPEATS} FlowID-order repeats per W. "
+        "c2 and physical use exact Rips (`WINDOWED_SPARSE=None`) and are expected "
+        "bit-identical; network uses sparse Rips (ε=0.5) and is expected to differ "
+        "(the sparse-Rips process-noise class, memory: sparse-rips-nondeterminism)."
+    )
+    lines.append("")
+    lines.append("| W | Manifold | Bit-identical across all ordered repeats? | n_repeats compared |")
+    lines.append("| ---: | :--- | :---: | ---: |")
+    for w, per_m in sorted(determinism.items()):
+        for m, d in per_m.items():
+            lines.append(f"| {w} | {m} | {d['identical_across_all_repeats']} | {d['n_repeats']} |")
+    lines.append("")
+    exact_manifolds = [m for m, (_, sparse) in BENCHMARK_GATE_MEDIANS_S.items() if sparse is None]
+    exact_all_identical = all(
+        per_m[m]["identical_across_all_repeats"]
+        for per_m in determinism.values() for m in exact_manifolds if m in per_m
+    )
+    lines.append(
+        f"Exact-Rips manifolds ({', '.join(exact_manifolds)}) "
+        f"{'ARE' if exact_all_identical else 'are NOT'} bit-identical across every "
+        "ordered repeat at every W in this campaign -- a determinism RESULT "
+        "(eliminating the sparse-Rips process-noise class documented in Phases "
+        "2-3 for these two manifolds specifically), not merely an assumption."
+    )
+    lines.append("")
+
+    lines.append("## 8. Status")
+    lines.append("")
+    lines.append(
+        "**Pending author sign-off.** This report, `compute_frontier.csv`, "
+        "`windowed_detection.csv`, `windowed_attribution.csv`, "
+        "`contamination_curve.csv`, and `paper_snippets/windowed_frontier_pgfplots.tex` "
+        "are all machine-generated candidates from the 80-run campaign under "
+        "`results/tables/rebuild/windowed/`. None of this has been reviewed for "
+        "inclusion in the manuscript; pre-existing `paper/*.md` files are untouched."
+    )
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def write_windowed_report(ws: Workspace, tables: dict) -> dict:
+    """Write the windowed-variant frontier pgfplots snippet + `paper/WINDOWED_RESULTS.md`.
+
+    Snippet: `results/tables/rebuild/paper_snippets/windowed_frontier_pgfplots.tex`
+    (from `emit_frontier_pgfplots(tables["frontier"])`, real campaign data).
+    Report: `{ws.root}/paper/WINDOWED_RESULTS.md` (`{ws.root}/paper` so tests
+    pointed at a `tmp_path` Workspace never touch the real repo `paper/` tree,
+    mirroring `manuscript.build_manuscript_stats`'s `rebuild_dir`-relative
+    `paper_dir` convention). Computes the determinism check (§7) and the
+    Blackhole mixed-window summary (§4) from the loaded campaign runs.
+    Returns ``{"snippet": Path, "report": Path}``.
+    """
+    snippets_dir = ws.tables_dir / "rebuild" / "paper_snippets"
+    snippets_dir.mkdir(parents=True, exist_ok=True)
+    snippet_path = snippets_dir / "windowed_frontier_pgfplots.tex"
+    snippet_path.write_text(emit_frontier_pgfplots(tables["frontier"]) + "\n")
+
+    determinism = windowed_determinism_check(ws)
+    blackhole = windowed_blackhole_summary(ws)
+    report_text = _render_windowed_report(ws, tables, determinism, blackhole)
+
+    paper_dir = ws.root / "paper"
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    report_path = paper_dir / "WINDOWED_RESULTS.md"
+    report_path.write_text(report_text)
+
+    return {"snippet": snippet_path, "report": report_path}

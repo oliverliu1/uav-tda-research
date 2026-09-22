@@ -94,11 +94,11 @@ def _cmd_windowed(args: argparse.Namespace) -> int:
 
 
 def _cmd_windowed_report(args: argparse.Namespace) -> int:
-    """Phase 5: ensure the windowed campaign, build tables, write CSVs + provenance.
+    """Phase 5: ensure the windowed campaign, build tables, write CSVs + report.
 
-    Report/snippet emission is wired fully in Task 4; this command ensures
-    missing campaign runs (real, slow -- run sequentially, never in tests),
-    then builds and writes the four report tables.
+    Ensures missing campaign runs (real, slow -- run sequentially, never in
+    tests), builds the four report tables + CSVs, then writes the
+    windowed-frontier pgfplots snippet and `paper/WINDOWED_RESULTS.md`.
     """
     ws = _workspace_for(args)
     ws.ensure()
@@ -106,6 +106,9 @@ def _cmd_windowed_report(args: argparse.Namespace) -> int:
     tables = windowed.build_windowed_tables(ws, B=args.bootstrap)
     paths = windowed.write_windowed_tables(ws, tables, B=args.bootstrap, bootstrap_seed=0)
     for name, path in paths.items():
+        print(f"wrote {path}")
+    report_paths = windowed.write_windowed_report(ws, tables)
+    for name, path in report_paths.items():
         print(f"wrote {path}")
     return 0
 

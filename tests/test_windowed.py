@@ -316,6 +316,34 @@ def test_windowed_cli_registration_and_flags():
     assert args2.bootstrap == 2000
 
 
+def test_emit_frontier_pgfplots_golden_string():
+    """3-row synthetic frontier (per_flow + w=25, w=50), scrambled input row
+    order, to prove the emitter's own canonical ordering (per_flow point
+    first, then W ascending) rather than trusting caller order."""
+    df = pd.DataFrame([
+        {"row": "50", "w": 50, "auc_mean": 0.934, "auc_std": 0.011,
+         "ci_lo": 0.90, "ci_hi": 0.96, "marginal_s": 0.00789, "baseline_s": 1.2, "n_runs": 10},
+        {"row": "per_flow", "w": None, "auc_mean": 0.858, "auc_std": 0.028,
+         "ci_lo": 0.80, "ci_hi": 0.90, "marginal_s": 0.0512, "baseline_s": float("nan"), "n_runs": 10},
+        {"row": "25", "w": 25, "auc_mean": 0.912, "auc_std": 0.015,
+         "ci_lo": 0.88, "ci_hi": 0.94, "marginal_s": 0.00341, "baseline_s": 0.9, "n_runs": 10},
+    ])
+
+    result = windowed.emit_frontier_pgfplots(df)
+
+    expected = (
+        "\\addplot coordinates {\n"
+        "    (0.0512, 0.858) +- (0, 0.028)\n"
+        "    (0.00341, 0.912) +- (0, 0.015)\n"
+        "    (0.00789, 0.934) +- (0, 0.011)\n"
+        "};\n"
+        "\\node[font=\\small, anchor=south] at (axis cs:0.0512,0.886) {per-flow};\n"
+        "\\node[font=\\small, anchor=south] at (axis cs:0.00341,0.927) {W=25};\n"
+        "\\node[font=\\small, anchor=south] at (axis cs:0.00789,0.945) {W=50};"
+    )
+    assert result == expected
+
+
 def test_windowed_report_cmd_runs_without_real_campaign(tmp_path, monkeypatch):
     ws = Workspace.at(tmp_path)
     ws.ensure()
