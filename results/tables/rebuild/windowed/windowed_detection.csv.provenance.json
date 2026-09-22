@@ -1,7 +1,7 @@
 {
   "artifact": "windowed_detection.csv",
-  "created_utc": "2026-09-22T07:00:07.365480+00:00",
-  "git_sha": "ca59b0a2dba067bb572d9ea6973ee45fea294dab",
+  "created_utc": "2026-09-22T08:18:27.791039+00:00",
+  "git_sha": "e8591f049d9d466480b9e959db09988d712b23ef",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",

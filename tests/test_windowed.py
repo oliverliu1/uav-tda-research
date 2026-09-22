@@ -247,8 +247,11 @@ def test_contamination_bins_partition_and_bin0_pure_normal(tmp_path):
     df, _stats, _timing = _write_synthetic_run(ws, 25, "ordered", 0, n_windows=80, seed=4)
 
     table = windowed.build_contamination_table(ws)
+    assert "arm" in table.columns
+    assert set(table["arm"]) == {"ordered"}
+
     agg = table[table["majority_class"] == "all"]
-    w25 = agg[agg["w"] == 25]
+    w25 = agg[(agg["w"] == 25) & (agg["arm"] == "ordered")]
 
     assert w25["n_windows"].sum() == 80
 
@@ -256,6 +259,26 @@ def test_contamination_bins_partition_and_bin0_pure_normal(tmp_path):
     assert (zero_windows["majority_label"] == "Normal Traffic").all()
     bin0 = w25[w25["bin"] == "0"].iloc[0]
     assert bin0["n_windows"] == len(zero_windows)
+
+
+def test_contamination_table_splits_ordered_and_shuffled_arms(tmp_path):
+    """H1: ordered and shuffled arms must not be pooled into one bin population."""
+    ws = Workspace.at(tmp_path)
+    ws.ensure()
+    ordered_df, _s, _t = _write_synthetic_run(ws, 25, "ordered", 0, n_windows=40, seed=5)
+    shuffled_df, _s2, _t2 = _write_synthetic_run(ws, 25, "shuffled", 0, n_windows=40, seed=6)
+
+    table = windowed.build_contamination_table(ws)
+    assert set(table["arm"]) == {"ordered", "shuffled"}
+
+    agg = table[table["majority_class"] == "all"]
+    ordered_rows = agg[(agg["w"] == 25) & (agg["arm"] == "ordered")]
+    shuffled_rows = agg[(agg["w"] == 25) & (agg["arm"] == "shuffled")]
+
+    # Each arm's bin population is drawn only from that arm's own windows --
+    # not pooled with the other arm's windows.
+    assert ordered_rows["n_windows"].sum() == len(ordered_df)
+    assert shuffled_rows["n_windows"].sum() == len(shuffled_df)
 
 
 def test_build_frontier_table_five_rows_and_marginal_cost(tmp_path):
