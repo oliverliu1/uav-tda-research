@@ -88,6 +88,84 @@ def test_exact_w2_flow_uses_primary_then_retry_delta(monkeypatch):
     assert approx_flag is True
 
 
+def test_direct_w2_flow_finite_real_call():
+    """The campaign path: no fork/timeout wrapper, real (unmocked) hera call."""
+    diagram = np.array([
+        [0.0, 0.1, 0.5],
+        [0.0, 0.2, 0.6],
+    ])
+    baselines_m = {0: np.array([[0.15, 0.55]])}
+    total, n_timeouts, approx_flag = exact.direct_w2_flow(
+        diagram, baselines_m, max_edge=1.0, max_hom_dim=0,
+    )
+    assert np.isfinite(total)
+    assert total >= 0.0
+    assert n_timeouts == 0
+    assert approx_flag is False
+
+
+def test_direct_w2_flow_uses_given_delta(monkeypatch):
+    calls = []
+
+    def _fake_wdist(d1, d2, order, internal_p, delta):  # noqa: ARG001
+        calls.append(delta)
+        return 2.71
+
+    import gudhi.hera as hera_module
+    monkeypatch.setattr(hera_module, "wasserstein_distance", _fake_wdist)
+
+    diagram = np.array([[0.0, 0.1, 0.5]])
+    baselines_m = {0: np.array([[0.15, 0.55]])}
+    total, n_timeouts, approx_flag = exact.direct_w2_flow(
+        diagram, baselines_m, max_edge=1.0, max_hom_dim=0, delta=0.01,
+    )
+    assert calls == [0.01]
+    assert total == pytest.approx(2.71)
+    assert n_timeouts == 0
+    assert approx_flag is False
+
+
+def test_run_shard_calls_direct_w2_flow_not_exact_w2_flow(tmp_path, monkeypatch):
+    """Regression guard: the campaign path (`run_shard`) must use the
+    unwrapped in-process `direct_w2_flow`, not `exact_w2_flow`'s
+    fork-timeout machinery (unstable when nested inside joblib/loky
+    workers -- see module docstring, 2026-09-22 intervention).
+    """
+    import pickle
+
+    ws = _make_workspace(tmp_path)
+    pd.DataFrame({"label": ["Normal Traffic", "Sybil Attack"]}).to_csv(
+        ws.outputs_dir / "labels_test.csv", index=False
+    )
+    ws.persistence_dir.mkdir(parents=True, exist_ok=True)
+    for m in config.MANIFOLDS:
+        diagrams = [np.array([[0.0, 0.1, 0.5]]), np.array([[0.0, 0.1, 0.5]])]
+        (ws.persistence_dir / f"{m}_test.pkl").write_bytes(pickle.dumps(diagrams))
+
+    baselines = {m: {k: np.array([[0.15, 0.55]]) for k in range(config.MAX_HOM_DIM[m] + 1)}
+                 for m in config.MANIFOLDS}
+
+    direct_calls = {"n": 0}
+    exact_calls = {"n": 0}
+
+    def _fake_direct(diagram, baselines_m, max_edge, max_hom_dim, delta=exact.PRIMARY_DELTA):  # noqa: ARG001
+        direct_calls["n"] += 1
+        return 1.0, 0, False
+
+    def _fake_exact(*args, **kwargs):  # noqa: ARG001
+        exact_calls["n"] += 1
+        return 1.0, 0, False
+
+    monkeypatch.setattr(exact, "direct_w2_flow", _fake_direct)
+    monkeypatch.setattr(exact, "exact_w2_flow", _fake_exact)
+
+    exact_dir = ws.tables_dir / "rebuild" / "exact"
+    exact.run_shard(ws, exact_dir, "test", 0, 2, baselines, n_jobs=1)
+
+    assert direct_calls["n"] == 2 * len(config.MANIFOLDS)
+    assert exact_calls["n"] == 0
+
+
 def test_exact_w2_flow_primary_delta_success_no_retry(monkeypatch):
     calls = []
 

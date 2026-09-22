@@ -46,6 +46,17 @@ relative to the probe's production config; `insensitivity_check` (below)
 quantifies the residual delta=0.01-vs-delta=0.05 AUC sensitivity on a test
 subsample so the report can state the residual approximation's measured
 impact rather than merely assert it is small.
+
+CAMPAIGN CALL PATH (revised 2026-09-22, second controller intervention): the
+first real campaign launch nested `probe._w2_with_timeout`'s per-call
+`fork()` inside joblib/loky worker processes, which is unstable on macOS
+(loky workers silently died; only ~2/7 stayed alive; zero shards completed
+in 47 minutes). `run_shard` now calls `direct_w2_flow` (below) -- a direct,
+unwrapped in-process hera call mirroring `pipeline.py`'s production
+`_wasserstein_for_flow` -- instead of `exact_w2_flow`. `exact_w2_flow`'s
+fork-timeout+retry machinery is kept (own tests, optional/interactive use)
+but is not on the campaign's hot path; shard-level resumability via
+`manifest.json` is the hang-recovery story instead.
 """
 from __future__ import annotations
 
@@ -200,6 +211,52 @@ def exact_w2_flow(
     return float(total), n_timeouts, approx_flag
 
 
+def direct_w2_flow(
+    diagram: np.ndarray,
+    baselines_m: dict,
+    max_edge: float,
+    max_hom_dim: int,
+    delta: float = PRIMARY_DELTA,
+) -> "tuple[float, int, bool]":
+    """Direct in-process high-precision (delta<=0.01) W2, summed over dims.
+
+    THE CAMPAIGN PATH (revised 2026-09-22, controller intervention). NO
+    fork-timeout wrapper: `probe._w2_with_timeout`'s per-call
+    `multiprocessing.get_context("fork")` nested INSIDE an already-parallel
+    joblib/loky worker process was found unstable on macOS in the first
+    real campaign launch -- loky workers silently died ("A worker stopped
+    while some jobs were given to the executor"), leaving only ~2/7 workers
+    alive and ZERO shards completed after 47 minutes. This mirrors
+    `pipeline.py`'s `_wasserstein_for_flow` (the May production pass's own
+    design, and the `w2_timeout is None` branch already used by
+    `probe._probe_distances`): import the hera backend directly inside the
+    worker and call it with no further forking.
+
+    `exact_w2_flow`'s fork-timeout+delta-retry machinery is KEPT (its own
+    tests still cover it) for optional/interactive use, but is no longer
+    the campaign's per-flow call -- `run_shard` calls this function instead.
+    The campaign's hang-recovery story is shard-level resumability
+    (`manifest.json`): if a worker ever hangs, kill the campaign process and
+    relaunch `uav-tda exact`, which resumes from the last completed shard
+    against the SAME persisted baselines (`ensure_baselines` always takes
+    the load branch on resume). Measured `delta=0.01` hang risk on real
+    diagrams is empirically ~0 (0/13 sampled flows timed out at 120s in the
+    T3 pre-launch re-benchmark).
+
+    Returns ``(total, n_timeouts, approx_flag)`` for row-schema
+    compatibility with `exact_w2_flow` -- always ``(total, 0, False)`` since
+    no timeout fallback is attempted on this path.
+    """
+    from gudhi.hera import wasserstein_distance as wdist  # noqa: PLC0415
+
+    total = 0.0
+    for dim in range(max_hom_dim + 1):
+        flow_bd = probe._slice_dim(diagram, dim, max_edge)
+        base_bd = baselines_m[dim]
+        total += float(wdist(flow_bd, base_bd, order=2.0, internal_p=2.0, delta=delta))
+    return float(total), 0, False
+
+
 # ---------------------------------------------------------------------------
 # Sharded runner + resumable manifest
 # ---------------------------------------------------------------------------
@@ -244,13 +301,20 @@ def run_shard(
     class_filter: "str | None" = None,
     n_jobs: int = -1,
 ) -> Path:
-    """Compute exact-W2 rows for flows [start, start+size) of ``split``.
+    """Compute high-precision-W2 rows for flows [start, start+size) of ``split``.
 
     Rows: `[row_idx, label, W2_c2, W2_network, W2_physical, n_timeouts,
     approx_flag]`. ``class_filter`` restricts (order-preserved) to one
     class before slicing [start, start+size). Writes
     `shard_{split}_{start:05d}.csv` and updates `manifest.json` atomically
     (write tmp, rename) marking the shard complete with its row count.
+
+    Per-flow W2 uses `direct_w2_flow` (in-process, no fork-timeout wrapper
+    -- see its docstring: nesting `probe._w2_with_timeout`'s fork inside a
+    joblib/loky worker was found unstable on macOS). `n_timeouts` and
+    `approx_flag` are therefore always 0/False on this path; they remain in
+    the row schema for compatibility with `exact_w2_flow`'s interface and
+    downstream table assembly.
 
     `row_idx` indexes into the ORIGINAL unfiltered `labels_{split}.csv`
     (i.e. `outputs/labels_{split}.csv` row position), so it is
@@ -275,7 +339,7 @@ def run_shard(
         approx_flag_total = False
         for m in config.MANIFOLDS:
             diagram = per_manifold_diagrams[m][i]
-            total, n_t, approx = exact_w2_flow(
+            total, n_t, approx = direct_w2_flow(
                 diagram, baselines[m], max_edge_lengths[m], config.MAX_HOM_DIM[m],
             )
             row[f"W2_{m}"] = total
