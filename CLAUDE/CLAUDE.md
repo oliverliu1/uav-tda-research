@@ -25,6 +25,13 @@ uav-tda evaluate        # Phase 7: ablations, final tables, paper figures
 uav-tda all             # every phase in order
 ```
 
+Additional analysis commands (not part of the ordered `prep`..`evaluate` pipeline above):
+
+```bash
+uav-tda windowed --w W [--order-seed N] [--repeat K]  # Phase 5: run one windowed-variant campaign-grid entry (time-windowed multi-manifold persistence; see docs/superpowers/specs/2026-09-21-windowed-variant-design.md)
+uav-tda windowed-report [--bootstrap B]                 # Phase 5: ensure the 80-run windowed campaign, build detection/attribution/contamination/frontier tables, write paper/WINDOWED_RESULTS.md
+```
+
 Shared flags on every subcommand: `--debug` (fast stratified-sample smoke test — use this for any quick
 iteration), `--root PATH` (workspace root, default: repo root via `Workspace.default()`). `tda`, `unsupervised`, and `all` also take `--n-jobs`; `tda` and `all` also take `--manifold {c2,network,physical,all}`, `--split {train,val,test,all}`, and `--seed`.
 

@@ -6,7 +6,9 @@ from pathlib import Path
 
 from . import data, evaluate, features, manuscript, metrics, probe, supervised, unsupervised
 from . import tda as tda_module
-from .config import MANUSCRIPT_SEEDS, PROBE_DELTA, PROBE_PER_CLASS, PROBE_TOP_K
+from . import windowed
+from .config import (MANUSCRIPT_SEEDS, PROBE_DELTA, PROBE_PER_CLASS, PROBE_TOP_K,
+                      WINDOW_SIZES)
 from .paths import TABLES_DIR
 from .provenance import write_provenance
 from .workspace import Workspace
@@ -75,6 +77,39 @@ def _cmd_manuscript_report(args: argparse.Namespace) -> int:
 def _cmd_znorm_report(args: argparse.Namespace) -> int:
     from . import znorm_report
     znorm_report.build_report()
+    return 0
+
+
+def _cmd_windowed(args: argparse.Namespace) -> int:
+    """Phase 5: run one windowed-variant campaign-grid entry + write its artifacts."""
+    ws = _workspace_for(args)
+    ws.ensure()
+    if args.order_seed is not None:
+        arm, k = "shuffled", args.order_seed
+    else:
+        arm, k = "ordered", args.repeat
+    paths = windowed.run_campaign_entry(ws, args.w, arm, k)
+    print(f"wrote {paths['csv']}, {paths['meta']}")
+    return 0
+
+
+def _cmd_windowed_report(args: argparse.Namespace) -> int:
+    """Phase 5: ensure the windowed campaign, build tables, write CSVs + report.
+
+    Ensures missing campaign runs (real, slow -- run sequentially, never in
+    tests), builds the four report tables + CSVs, then writes the
+    windowed-frontier pgfplots snippet and `paper/WINDOWED_RESULTS.md`.
+    """
+    ws = _workspace_for(args)
+    ws.ensure()
+    windowed.run_missing_campaign(ws)
+    tables = windowed.build_windowed_tables(ws, B=args.bootstrap)
+    paths = windowed.write_windowed_tables(ws, tables, B=args.bootstrap, bootstrap_seed=0)
+    for name, path in paths.items():
+        print(f"wrote {path}")
+    report_paths = windowed.write_windowed_report(ws, tables)
+    for name, path in report_paths.items():
+        print(f"wrote {path}")
     return 0
 
 
@@ -177,6 +212,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bootstrap", type=int, default=2000)
     p.add_argument("--w2-timeout", type=float, default=30.0)
     p.set_defaults(func=_cmd_manuscript_report)
+
+    p = sub.add_parser("windowed", help="Phase 5: run one windowed-variant campaign entry.")
+    _add_common_args(p)
+    p.add_argument("--w", type=int, required=True, choices=list(WINDOW_SIZES))
+    p.add_argument("--order-seed", type=int, default=None,
+                    help="Shuffle-control seed; given -> shuffled arm. Omit for the ordered arm.")
+    p.add_argument("--repeat", type=int, default=0,
+                    help="Ordered-arm repeat index (metadata only; ignored if --order-seed given).")
+    p.set_defaults(func=_cmd_windowed)
+
+    p = sub.add_parser("windowed-report",
+                        help="Phase 5: ensure the windowed campaign and build report tables.")
+    _add_common_args(p)
+    p.add_argument("--bootstrap", type=int, default=2000)
+    p.set_defaults(func=_cmd_windowed_report)
 
     p = sub.add_parser("prep", help="Phase 2: data prep and splits.")
     _add_common_args(p)

@@ -1,0 +1,17 @@
+{
+  "artifact": "run_w100_ordered3_meta.json",
+  "created_utc": "2026-09-22T04:50:59.855291+00:00",
+  "git_sha": "ca59b0a2dba067bb572d9ea6973ee45fea294dab",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "arm": "ordered",
+    "k": 3,
+    "w": 100
+  },
+  "uav_tda_version": "0.1.0"
+}
