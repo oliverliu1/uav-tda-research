@@ -302,3 +302,526 @@ def benchmark_exact_rips(ws: Workspace, w: int = 200, n_trials: int = 3) -> dict
         log.info("benchmark %s: median %.3fs over %d trials (w=%d)",
                  manifold, results[manifold]["median_s"], len(trials), w)
     return results
+
+
+# --- Task 3: campaign artifacts, tables, CLI plumbing -----------------------
+# Grid: config.WINDOW_SIZES x {("ordered", k) for k in range(WINDOWED_REPEATS)}
+# U {("shuffled", k) for k in WINDOWED_SHUFFLE_SEEDS} -- 4 x (10 + 10) = 80
+# entries. All builder functions below work off however many runs are
+# ACTUALLY present under results/tables/rebuild/windowed/ (not necessarily
+# the full 80), which is what makes them unit-testable on tiny synthetic
+# fixtures without a real campaign.
+
+_WINDOWED_SUBDIR = ("rebuild", "windowed")
+
+
+def _windowed_dir(ws: Workspace):
+    d = ws.tables_dir
+    for part in _WINDOWED_SUBDIR:
+        d = d / part
+    return d
+
+
+def _run_paths(ws: Workspace, w: int, arm: str, k: int) -> dict:
+    d = _windowed_dir(ws)
+    return {
+        "csv": d / f"run_w{w}_{arm}{k}.csv",
+        "meta": d / f"run_w{w}_{arm}{k}_meta.json",
+    }
+
+
+def write_run_artifacts(ws: Workspace, w: int, arm: str, k: int,
+                         window_df, stats: dict, timing: dict) -> dict:
+    """Write one campaign run's window_df + stats/timing/params to disk.
+
+    Writes `run_w{W}_{arm}{k}.csv` (the window_df, verbatim) and
+    `run_w{W}_{arm}{k}_meta.json` (``{"stats", "timing", "params"}``, stats
+    serialized as ``{manifold: {"mean", "std"}}``) under
+    `results/tables/rebuild/windowed/`, each with a `write_provenance`
+    sidecar. Returns ``{"csv": Path, "meta": Path}``.
+    """
+    import json
+
+    from .provenance import write_provenance
+
+    paths = _run_paths(ws, w, arm, k)
+    paths["csv"].parent.mkdir(parents=True, exist_ok=True)
+
+    params = {"w": w, "arm": arm, "k": k}
+
+    window_df.to_csv(paths["csv"], index=False)
+    write_provenance(paths["csv"], params)
+
+    meta = {
+        "stats": {m: {"mean": mean, "std": std} for m, (mean, std) in stats.items()},
+        "timing": timing,
+        "params": params,
+    }
+    paths["meta"].write_text(json.dumps(meta, indent=2, sort_keys=True))
+    write_provenance(paths["meta"], params)
+    return paths
+
+
+def load_run(ws: Workspace, w: int, arm: str, k: int):
+    """Load one campaign run's (window_df, stats, timing) written by ``write_run_artifacts``."""
+    import json
+
+    import pandas as pd
+
+    paths = _run_paths(ws, w, arm, k)
+    window_df = pd.read_csv(paths["csv"])
+    meta = json.loads(paths["meta"].read_text())
+    stats = {m: (v["mean"], v["std"]) for m, v in meta["stats"].items()}
+    return window_df, stats, meta["timing"]
+
+
+def missing_runs(ws: Workspace) -> list:
+    """(w, arm, k) triples in the full campaign grid lacking both artifacts.
+
+    Grid: `config.WINDOW_SIZES` x {("ordered", k) for k in
+    range(WINDOWED_REPEATS)} U {("shuffled", k) for k in
+    WINDOWED_SHUFFLE_SEEDS} -- 4 x 20 = 80 entries when
+    `results/tables/rebuild/windowed/` is empty.
+    """
+    missing = []
+    for w in config.WINDOW_SIZES:
+        for k in range(config.WINDOWED_REPEATS):
+            paths = _run_paths(ws, w, "ordered", k)
+            if not (paths["csv"].exists() and paths["meta"].exists()):
+                missing.append((w, "ordered", k))
+        for k in config.WINDOWED_SHUFFLE_SEEDS:
+            paths = _run_paths(ws, w, "shuffled", k)
+            if not (paths["csv"].exists() and paths["meta"].exists()):
+                missing.append((w, "shuffled", k))
+    return missing
+
+
+def run_campaign_entry(ws: Workspace, w: int, arm: str, k: int) -> dict:
+    """Run one campaign grid entry (real, slow) and write its artifacts.
+
+    ``arm="ordered"`` -> ``run_windowed(order_seed=None, repeat=k)`` (FlowID
+    order; k is metadata distinguishing the WINDOWED_REPEATS repeats -- if
+    exact Rips holds for a manifold these repeats are bit-identical, per
+    spec 2.2/3.5). ``arm="shuffled"`` -> ``run_windowed(order_seed=k)`` (the
+    shuffle control, permutation seeded by k).
+    """
+    if arm == "ordered":
+        window_df, stats, timing = run_windowed(ws, w, order_seed=None, repeat=k)
+    elif arm == "shuffled":
+        window_df, stats, timing = run_windowed(ws, w, order_seed=k, repeat=k)
+    else:
+        raise ValueError(f"unknown arm {arm!r}; expected 'ordered' or 'shuffled'")
+    return write_run_artifacts(ws, w, arm, k, window_df, stats, timing)
+
+
+def run_missing_campaign(ws: Workspace, entry_fn=run_campaign_entry) -> None:
+    """Sequentially run every missing campaign grid entry (real, slow path).
+
+    This is the 80-run, multi-hour Phase-5 campaign. It is invoked ONLY
+    from `uav-tda windowed-report`, one entry at a time (no parallelism, no
+    detachment) -- the campaign itself is explicitly out of scope for this
+    task (see task-3-brief: "do NOT launch the real campaign in this
+    task"). Tests must monkeypatch `entry_fn` (or this function itself) so
+    no real windowed run ever executes under pytest.
+    """
+    for w, arm, k in missing_runs(ws):
+        entry_fn(ws, w, arm, k)
+
+
+def load_all_runs(ws: Workspace) -> list:
+    """Load every campaign run currently present under `.../windowed/`.
+
+    Returns a list of ``{"w", "arm", "k", "window_df", "stats", "timing"}``
+    dicts, discovered from `run_w{W}_{arm}{k}.csv` filenames already on
+    disk -- however many are present, not necessarily the full 80-run grid.
+    """
+    import re
+
+    d = _windowed_dir(ws)
+    runs = []
+    if not d.exists():
+        return runs
+    pattern = re.compile(r"^run_w(\d+)_(ordered|shuffled)(\d+)\.csv$")
+    for csv_path in sorted(d.glob("run_w*.csv")):
+        m = pattern.match(csv_path.name)
+        if not m:
+            continue
+        w, arm, k = int(m.group(1)), m.group(2), int(m.group(3))
+        window_df, stats, timing = load_run(ws, w, arm, k)
+        runs.append({"w": w, "arm": arm, "k": k, "window_df": window_df,
+                     "stats": stats, "timing": timing})
+    return runs
+
+
+# --- Detection table ---------------------------------------------------------
+
+def build_detection_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0):
+    """Window-level binary (Normal-vs-any-attack) AUC, per W x arm x subset x scoring.
+
+    Groups loaded runs by (w, arm); within each group, treats each run as
+    one "seed" in the `manuscript.bootstrap_mean_auc_ci` sense: per-run AUC
+    on ``y = majority_label != "Normal Traffic"`` vs. that run's
+    ``W2_<subset>`` column (scoring="raw") or ``Z2_<subset>`` column
+    (scoring="znorm"). mean/std (ddof=1) across runs; CI via
+    `bootstrap_mean_auc_ci` with ``labels_per_seed`` = each run's
+    `majority_label` array (stratified resampling, avoiding single-class
+    bootstrap replicates when a run has few attack windows). Columns: w,
+    arm, subset, scoring, mean, std, ci_lo, ci_hi, n_runs.
+    """
+    import numpy as np
+    import pandas as pd
+    from sklearn.metrics import roc_auc_score
+
+    from .manuscript import bootstrap_mean_auc_ci
+    from .metrics import MANIFOLD_SUBSETS
+
+    groups: dict = {}
+    for r in load_all_runs(ws):
+        groups.setdefault((r["w"], r["arm"]), []).append(r)
+
+    rows = []
+    for (w, arm), group_runs in sorted(groups.items()):
+        for subset in MANIFOLD_SUBSETS:
+            for scoring, prefix in (("raw", "W2_"), ("znorm", "Z2_")):
+                per_run, labels_per_run, aucs = [], [], []
+                for r in group_runs:
+                    df = r["window_df"]
+                    y = (df["majority_label"] != _NORMAL_LABEL).astype(int).to_numpy()
+                    scores = df[f"{prefix}{subset}"].to_numpy()
+                    per_run.append((y, scores))
+                    labels_per_run.append(df["majority_label"].to_numpy())
+                    aucs.append(float(roc_auc_score(y, scores)))
+                aucs_arr = np.asarray(aucs, dtype=float)
+                mean = float(aucs_arr.mean())
+                std = float(aucs_arr.std(ddof=1)) if len(aucs_arr) > 1 else 0.0
+                ci_lo, ci_hi = bootstrap_mean_auc_ci(
+                    per_run, B=B, bootstrap_seed=bootstrap_seed,
+                    labels_per_seed=labels_per_run)
+                rows.append({
+                    "w": w, "arm": arm, "subset": subset, "scoring": scoring,
+                    "mean": mean, "std": std, "ci_lo": ci_lo, "ci_hi": ci_hi,
+                    "n_runs": len(group_runs),
+                })
+    return pd.DataFrame(rows)
+
+
+# --- Attribution table --------------------------------------------------------
+
+def build_windowed_attribution_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0):
+    """One-vs-rest window-level AUC per (W, attack, manifold), ORDERED arm only.
+
+    Ordered-arm runs only (spec 3.3: attribution survival is a property of
+    the FlowID-order windowing, not the shuffle control). Raw `W2_<manifold>`
+    scores -- per-manifold AUC is invariant to the per-manifold znorm affine
+    rescaling, matching `manuscript.build_attribution_table`'s rationale, so
+    there is no separate znorm variant here. `dominant` marks the single
+    highest-mean manifold within each (w, attack) group.
+
+    Robustness note: a real campaign can produce an attack class that is
+    NEVER a window majority at some W (spec 1: Blackhole is interleaved
+    with Normal at flow granularity, so Blackhole-era windows are always
+    mixed) -- then y is single-class and AUC is undefined. Such
+    (w, attack, manifold) cells get `mean=NaN`/`ci=(NaN, NaN)` rather than
+    raising, and are excluded from the per-(w, attack) dominance vote (a
+    group with no finite mean gets `dominant=False` everywhere).
+    """
+    import numpy as np
+    import pandas as pd
+    from sklearn.metrics import roc_auc_score
+
+    from .manuscript import bootstrap_mean_auc_ci
+    from .metrics import ATTACK_CLASSES
+
+    groups: dict = {}
+    for r in load_all_runs(ws):
+        if r["arm"] != "ordered":
+            continue
+        groups.setdefault(r["w"], []).append(r)
+
+    rows = []
+    for w, group_runs in sorted(groups.items()):
+        per_cell_aucs: dict = {}
+        per_cell_ci: dict = {}
+        for attack in ATTACK_CLASSES:
+            for m in config.MANIFOLDS:
+                per_run, labels_per_run, aucs = [], [], []
+                for r in group_runs:
+                    df = r["window_df"]
+                    y = (df["majority_label"].to_numpy() == attack).astype(int)
+                    if len(np.unique(y)) < 2:
+                        continue
+                    scores = df[f"W2_{m}"].to_numpy()
+                    per_run.append((y, scores))
+                    labels_per_run.append(df["majority_label"].to_numpy())
+                    aucs.append(float(roc_auc_score(y, scores)))
+                per_cell_aucs[(attack, m)] = aucs
+                per_cell_ci[(attack, m)] = (
+                    bootstrap_mean_auc_ci(per_run, B=B, bootstrap_seed=bootstrap_seed,
+                                           labels_per_seed=labels_per_run)
+                    if per_run else (float("nan"), float("nan"))
+                )
+
+        for attack in ATTACK_CLASSES:
+            means = {}
+            for m in config.MANIFOLDS:
+                aucs = per_cell_aucs[(attack, m)]
+                means[m] = float(np.mean(aucs)) if aucs else float("nan")
+            finite_means = {m: v for m, v in means.items() if np.isfinite(v)}
+            dominant_manifold = max(finite_means, key=finite_means.get) if finite_means else None
+            for m in config.MANIFOLDS:
+                aucs_arr = np.asarray(per_cell_aucs[(attack, m)], dtype=float)
+                std = float(aucs_arr.std(ddof=1)) if len(aucs_arr) > 1 else 0.0
+                ci_lo, ci_hi = per_cell_ci[(attack, m)]
+                rows.append({
+                    "w": w, "attack_class": attack, "manifold": m,
+                    "mean": means[m], "std": std, "ci_lo": ci_lo, "ci_hi": ci_hi,
+                    "dominant": m == dominant_manifold, "n_runs": len(per_cell_aucs[(attack, m)]),
+                })
+    return pd.DataFrame(rows)
+
+
+# --- Contamination curve -----------------------------------------------------
+
+def _contamination_bin_labels() -> list:
+    edges = config.CONTAMINATION_BINS
+    return ["0"] + [f"({lo:.2f},{hi:.2f}]" for lo, hi in zip(edges[:-1], edges[1:])]
+
+
+def _assign_contamination_bin(attack_frac) -> list:
+    import numpy as np
+
+    edges = config.CONTAMINATION_BINS
+    labels = _contamination_bin_labels()
+    attack_frac = np.asarray(attack_frac, dtype=float)
+    out = np.empty(len(attack_frac), dtype=object)
+    out[:] = labels[-1]
+    is_zero = attack_frac == 0.0
+    out[is_zero] = labels[0]
+    for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
+        mask = (~is_zero) & (attack_frac > lo) & (attack_frac <= hi)
+        out[mask] = labels[i + 1]
+    return out
+
+
+def build_contamination_table(ws: Workspace):
+    """Window attack_frac contamination curve, per W x bin (+ per-majority-class rows).
+
+    Bins from `config.CONTAMINATION_BINS`: bin "0" = attack_frac exactly 0,
+    then (0, .25], (.25, .5], (.5, .75], (.75, 1] -- a strict partition of
+    every window's attack_frac in [0, 1]. Per W, pools ALL loaded runs
+    (both arms) into one window population.
+
+    THRESHOLD-DESIGN NOTE (documented per the task-3 controller ruling):
+    `run_windowed`'s val-window score distribution (the natural source of a
+    "val 95th-percentile" detection threshold) is not persisted past a
+    run's own coupled invocation, so it cannot be reconstructed post-hoc
+    from `run_meta.json` (which stores only mean/std). This function
+    substitutes an EMPIRICAL near-normal reference population: per W, pools
+    `Z2_all_three` over every loaded window with `attack_frac <= 0.05`
+    (bin 0 plus near-zero contamination) and takes ITS 95th percentile as
+    that W's detection threshold. `detection_rate` per bin/class is the
+    fraction of that bin's windows scoring above this threshold. This is an
+    empirical-negative-reference substitute for the canonical Phase-3-style
+    val threshold, not the val threshold itself -- flag this explicitly
+    wherever `contamination_curve.csv` is cited in the report.
+
+    Columns: w, bin, bin_lo, bin_hi, majority_class ("all", or a specific
+    class name for the per-class breakdown when n >= 10), n_windows,
+    mean_raw_all_three, mean_znorm_all_three, threshold, detection_rate.
+    """
+    import numpy as np
+    import pandas as pd
+
+    groups: dict = {}
+    for r in load_all_runs(ws):
+        groups.setdefault(r["w"], []).append(r["window_df"])
+
+    bin_labels = _contamination_bin_labels()
+    edges = config.CONTAMINATION_BINS
+    bin_edges_map = {bin_labels[0]: (0.0, 0.0)}
+    for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
+        bin_edges_map[bin_labels[i + 1]] = (lo, hi)
+
+    rows = []
+    for w, dfs in sorted(groups.items()):
+        all_df = pd.concat(dfs, ignore_index=True).copy()
+        all_df["_bin"] = _assign_contamination_bin(all_df["attack_frac"].to_numpy())
+
+        near_normal = all_df[all_df["attack_frac"] <= 0.05]
+        threshold = (float(np.percentile(near_normal["Z2_all_three"].to_numpy(), 95))
+                     if len(near_normal) else float("nan"))
+
+        def _row(label, sub, majority_class):
+            n = len(sub)
+            det = (float((sub["Z2_all_three"] > threshold).mean())
+                   if n and np.isfinite(threshold) else float("nan"))
+            lo, hi = bin_edges_map[label]
+            return {
+                "w": w, "bin": label, "bin_lo": lo, "bin_hi": hi,
+                "majority_class": majority_class, "n_windows": n,
+                "mean_raw_all_three": float(sub["W2_all_three"].mean()) if n else float("nan"),
+                "mean_znorm_all_three": float(sub["Z2_all_three"].mean()) if n else float("nan"),
+                "threshold": threshold, "detection_rate": det,
+            }
+
+        for label in bin_labels:
+            sub = all_df[all_df["_bin"] == label]
+            rows.append(_row(label, sub, "all"))
+            for cls in sorted(sub["majority_label"].unique()):
+                cls_sub = sub[sub["majority_label"] == cls]
+                if len(cls_sub) >= 10:
+                    rows.append(_row(label, cls_sub, cls))
+    return pd.DataFrame(rows)
+
+
+# --- Matched-compute frontier -------------------------------------------------
+
+_PER_FLOW_ROW = "per_flow"
+
+
+def _time_per_flow_probe(seed: int = 42, per_class: int = 4) -> float:
+    """Time a small per-flow `probe.run_probe` sample; return seconds/flow (real, slow).
+
+    Two-point marginal estimate, mirroring the FRONTIER COST ruling applied
+    to the windowed arm: times ``probe.run_probe(seed, per_class=per_class)``
+    (5 classes x per_class flows; per_class=4 -> 20 flows) against
+    ``probe.run_probe(seed, per_class=1)`` (5 flows), and returns the SLOPE
+    ``(t_big - t_small) / (n_big - n_small)``. This nets out the shared
+    one-time cost every `run_probe` call pays (loading persistence diagrams
+    + baseline barcodes from disk), isolating the true per-decision
+    marginal cost rather than an amortized-with-setup number. Never called
+    by tests -- `build_frontier_table` takes an injectable `time_probe_fn`.
+    """
+    import time
+
+    from . import probe
+
+    t0 = time.perf_counter()
+    n_big = len(probe.run_probe(seed=seed, per_class=per_class))
+    t_big = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    n_small = len(probe.run_probe(seed=seed, per_class=1))
+    t_small = time.perf_counter() - t0
+
+    if n_big == n_small:
+        return t_big / n_big
+    return (t_big - t_small) / (n_big - n_small)
+
+
+def build_frontier_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0,
+                          binary_auc_csv=None, time_probe_fn=None):
+    """Matched-compute frontier: znorm all_three AUC vs marginal per-decision seconds.
+
+    One row per W present among the loaded ORDERED-arm runs (the shuffle
+    control is not part of the primary frontier), plus one "per_flow" row.
+
+    Windowed rows: AUC mean/std/ci_lo/ci_hi from `build_detection_table`
+    restricted to (arm="ordered", subset="all_three", scoring="znorm").
+    `marginal_s` = mean over that W's ordered runs of
+    ``(timing["total_s"] - timing["baseline_s"]) / timing["n_windows"]`` --
+    the FRONTIER COST controller ruling (marginal cost net of the baseline
+    val-medoid setup, NOT `run_windowed`'s amortized `per_window_s`).
+    `baseline_s` = mean fixed one-time val-baseline setup cost, recorded as
+    a separate column (not folded into `marginal_s`).
+
+    per_flow row: AUC mean/std/ci_lo/ci_hi read VERBATIM (not recomputed)
+    from Phase-4's `binary_auc.csv` (default
+    `ws.tables_dir/"rebuild"/"binary_auc.csv"`; override via
+    `binary_auc_csv` for tests), filtered to subset="all_three",
+    scoring="znorm". `marginal_s` from `time_probe_fn()` (default
+    `_time_per_flow_probe`, a REAL timed probe sample -- injectable so
+    tests never invoke it); `baseline_s` is NaN (the per-flow arm has no
+    equivalent fixed setup cost).
+    """
+    import numpy as np
+    import pandas as pd
+
+    if binary_auc_csv is None:
+        binary_auc_csv = ws.tables_dir / "rebuild" / "binary_auc.csv"
+    if time_probe_fn is None:
+        time_probe_fn = _time_per_flow_probe
+
+    detection = build_detection_table(ws, B=B, bootstrap_seed=bootstrap_seed)
+    ordered_znorm = detection[
+        (detection["arm"] == "ordered")
+        & (detection["subset"] == "all_three")
+        & (detection["scoring"] == "znorm")
+    ]
+
+    run_groups: dict = {}
+    for r in load_all_runs(ws):
+        if r["arm"] == "ordered":
+            run_groups.setdefault(r["w"], []).append(r)
+
+    rows = []
+    for _, row in ordered_znorm.sort_values("w").iterrows():
+        w = int(row["w"])
+        group_runs = run_groups.get(w, [])
+        marginals = [
+            (r["timing"]["total_s"] - r["timing"]["baseline_s"]) / r["timing"]["n_windows"]
+            for r in group_runs if r["timing"]["n_windows"]
+        ]
+        baselines = [r["timing"]["baseline_s"] for r in group_runs]
+        rows.append({
+            "row": str(w), "w": w,
+            "auc_mean": float(row["mean"]), "auc_std": float(row["std"]),
+            "ci_lo": float(row["ci_lo"]), "ci_hi": float(row["ci_hi"]),
+            "marginal_s": float(np.mean(marginals)) if marginals else float("nan"),
+            "baseline_s": float(np.mean(baselines)) if baselines else float("nan"),
+            "n_runs": int(row["n_runs"]),
+        })
+
+    binary_df = pd.read_csv(binary_auc_csv)
+    pf = binary_df[(binary_df["subset"] == "all_three")
+                    & (binary_df["scoring"] == "znorm")].iloc[0]
+    rows.append({
+        "row": _PER_FLOW_ROW, "w": None,
+        "auc_mean": float(pf["mean"]), "auc_std": float(pf["std"]),
+        "ci_lo": float(pf["ci_lo"]), "ci_hi": float(pf["ci_hi"]),
+        "marginal_s": float(time_probe_fn()), "baseline_s": float("nan"),
+        "n_runs": int(pf["n_seeds"]) if "n_seeds" in pf else None,
+    })
+    return pd.DataFrame(rows)
+
+
+# --- Aggregate builder + campaign-report CLI plumbing ------------------------
+
+def build_windowed_tables(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0) -> dict:
+    """Build all four windowed-variant report tables from whatever campaign
+    runs are present under `results/tables/rebuild/windowed/`.
+
+    Returns ``{"detection", "attribution", "contamination", "frontier"}``,
+    one `pd.DataFrame` each (see the individual `build_*` docstrings).
+    """
+    return {
+        "detection": build_detection_table(ws, B=B, bootstrap_seed=bootstrap_seed),
+        "attribution": build_windowed_attribution_table(ws, B=B, bootstrap_seed=bootstrap_seed),
+        "contamination": build_contamination_table(ws),
+        "frontier": build_frontier_table(ws, B=B, bootstrap_seed=bootstrap_seed),
+    }
+
+
+_TABLE_FILENAMES = {
+    "detection": "windowed_detection.csv",
+    "attribution": "windowed_attribution.csv",
+    "contamination": "contamination_curve.csv",
+    "frontier": "compute_frontier.csv",
+}
+
+
+def write_windowed_tables(ws: Workspace, tables: dict, B: int = None,
+                           bootstrap_seed: int = None) -> dict:
+    """Write the four windowed tables to `.../windowed/*.csv` + provenance sidecars."""
+    from .provenance import write_provenance
+
+    d = _windowed_dir(ws)
+    d.mkdir(parents=True, exist_ok=True)
+    params = {"bootstrap": B, "bootstrap_seed": bootstrap_seed}
+    paths = {}
+    for name, df in tables.items():
+        out = d / _TABLE_FILENAMES[name]
+        df.to_csv(out, index=False)
+        write_provenance(out, params)
+        paths[name] = out
+    return paths
