@@ -1,9 +1,10 @@
-"""Phase 6 Track A: sharded, resumable exact-Wasserstein-2 runner.
+"""Phase 6 Track A: sharded, resumable high-precision-Wasserstein-2 runner.
 
-Replaces the probe approximation (top-K + delta=0.2 relative error) with
-definitive full-diagram, delta=0.0 (exact) hera Wasserstein-2 on the full
-test split. Reuses `probe._load_baseline_barcodes`, `probe._slice_dim`, and
-`probe._w2_with_timeout` (probe.py itself is read-only / locked).
+Replaces the probe approximation (top-K truncation + delta=0.2 relative
+error) with definitive full-diagram, high-precision (delta<=0.01) hera
+Wasserstein-2 on the full test split. Reuses `probe._load_baseline_barcodes`,
+`probe._slice_dim`, and `probe._w2_with_timeout` (probe.py itself is
+read-only / locked).
 
 Same-run baseline coupling (Global Constraint): the per-manifold baseline
 barcodes are computed ONCE and persisted under `exact_dir` (npy + manifest +
@@ -14,14 +15,37 @@ recomputing them -- `probe._load_baseline_barcodes` runs sparse-Rips on the
 change the baseline realization that val Normal-znorm-stats and test
 distances are scored against.
 
-Exact means exact: hera `order=2.0, internal_p=2.0, delta=0.0` (NOT hera's
-own default delta=0.01) with NO top-K truncation. `delta=0.0` requests
-hera's exact auction-LP solution rather than a (1+delta)-approximate one;
-verified interactively that `delta=0.0` is markedly slower / can hang on
-pathological inputs (consistent with `probe._w2_with_timeout`'s existing
-fork-timeout machinery, which this module reuses unmodified) while the
-paper's measured ~3.3s/flow on the real, non-pathological clean diagrams
-stays well within the 120s per-call budget.
+CAMPAIGN DEFINITION (revised 2026-09-22, controller ruling after a T3
+pre-launch re-benchmark -- see paper/EXACT_RESULTS.md config header and
+`.superpowers/sdd/2026-09-22-plan6-exact-w2-latency/task-3-report.md` for the
+full record): hera's true exact mode (`delta=0.0`, the exact auction-LP
+solution rather than a (1+delta)-approximate one) was measured on 13 real
+test flows across all 3 manifolds and timed out on the 120s fork-timeout for
+AT LEAST ONE homology dim of EVERY sampled flow (13/13), driving the
+projected full-campaign wall clock to ~30 days at `--n-jobs 7` -- hera's
+exact auction-LP is intractable on these diagrams at any practical timeout.
+The alternative exact backend (`gudhi.wasserstein.wasserstein_distance`, an
+assignment/LAP-based exact solver) was evaluated next and found unusable in
+this environment without adding a new dependency: it has an unconditional
+top-level `import ot` (POT) with no scipy-only fallback in the installed
+gudhi 3.11.0, POT is not installed, and it was not installed per the
+controller's explicit instruction and the plan's "no new dependencies"
+constraint.
+
+The campaign therefore targets **high-precision, NOT literally exact**
+Wasserstein-2: hera `order=2.0, internal_p=2.0, delta=0.01` (hera's own
+default tolerance -- a 1%-relative-error bound) as the FIRST attempt, with a
+`delta=0.05` retry-once on timeout (both under the existing 120s fork-timeout
+machinery, reused unmodified). Confirmed by re-benchmark on real diagrams
+with the SAME persisted baselines: delta=0.01 is fast and never timed out
+(mean s/flow c2=1.53, network=1.97, physical=1.18; max 3.36s, all well
+inside the 120s budget) -- consistent with the paper's original ~3.3s/flow
+estimate. This removes the probe's per-class sampling and top-K(=50)
+truncation and tightens the relative-error tolerance 20x (0.2 -> 0.01)
+relative to the probe's production config; `insensitivity_check` (below)
+quantifies the residual delta=0.01-vs-delta=0.05 AUC sensitivity on a test
+subsample so the report can state the residual approximation's measured
+impact rather than merely assert it is small.
 """
 from __future__ import annotations
 
@@ -119,6 +143,16 @@ def ensure_baselines(ws: Workspace, exact_dir: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
+# High-precision campaign definition (revised 2026-09-22 -- see module
+# docstring): hera delta=0.0 (true exact) is intractable at 120s on real
+# diagrams (13/13 sampled flows timed out); gudhi.wasserstein (POT-backed
+# exact LAP) is unavailable without a new, disallowed dependency. The first
+# attempt uses hera's own default tolerance; on timeout, retry once at a
+# looser tolerance.
+PRIMARY_DELTA = 0.01
+RETRY_DELTA = 0.05
+
+
 def exact_w2_flow(
     diagram: np.ndarray,
     baselines_m: dict,
@@ -126,18 +160,22 @@ def exact_w2_flow(
     max_hom_dim: int,
     timeout_s: float = 120.0,
 ) -> "tuple[float, int, bool]":
-    """Exact per-dim Wasserstein-2 distance from ``diagram`` to a baseline, summed.
+    """High-precision (delta<=0.05) per-dim Wasserstein-2 distance, summed.
 
-    Per homology dim: `probe._slice_dim` both sides, then
-    `probe._w2_with_timeout(order=2.0, internal_p=2.0, delta=0.0, ...)`
-    (hera's exact mode). If that call times out (NaN), retry ONCE with
-    `delta=0.01` under the same timeout; if the retry also times out, the
-    dim contributes 0.0 and is counted in `n_timeouts`.
+    NOT literally exact -- see module docstring for why (`delta=0.0` hera
+    exact-LP is intractable at 120s on these diagrams; the POT-backed exact
+    LAP alternative, `gudhi.wasserstein`, is unavailable without a new
+    dependency). Per homology dim: `probe._slice_dim` both sides, then
+    `probe._w2_with_timeout(order=2.0, internal_p=2.0, delta=PRIMARY_DELTA,
+    ...)` (hera's own default 1%-relative-error tolerance). If that call
+    times out (NaN), retry ONCE with `delta=RETRY_DELTA` (5%) under the same
+    timeout; if the retry also times out, the dim contributes 0.0 and is
+    counted in `n_timeouts`.
 
     Returns ``(total, n_timeouts, approx_flag)`` where `approx_flag` is True
-    iff ANY dim used the delta retry at all -- whether or not that retry
-    itself succeeded (a successful delta=0.01 retry is still an
-    approximation, not the exact value).
+    iff ANY dim used the `RETRY_DELTA` retry at all -- whether or not that
+    retry itself succeeded (a successful 5% retry is a looser bound than the
+    campaign's primary 1% tolerance).
     """
     total = 0.0
     n_timeouts = 0
@@ -146,14 +184,14 @@ def exact_w2_flow(
         flow_bd = probe._slice_dim(diagram, dim, max_edge)
         base_bd = baselines_m[dim]
         w = probe._w2_with_timeout(
-            flow_bd, base_bd, order=2.0, internal_p=2.0, delta=0.0, timeout_sec=timeout_s,
+            flow_bd, base_bd, order=2.0, internal_p=2.0, delta=PRIMARY_DELTA, timeout_sec=timeout_s,
         )
         if np.isfinite(w):
             total += w
             continue
         approx_flag = True
         w_retry = probe._w2_with_timeout(
-            flow_bd, base_bd, order=2.0, internal_p=2.0, delta=0.01, timeout_sec=timeout_s,
+            flow_bd, base_bd, order=2.0, internal_p=2.0, delta=RETRY_DELTA, timeout_sec=timeout_s,
         )
         if np.isfinite(w_retry):
             total += w_retry
@@ -518,3 +556,94 @@ def write_exact_tables(ws: Workspace, tables: "dict[str, pd.DataFrame]") -> "dic
         write_provenance(out, {"table": name})
         paths[name] = out
     return paths
+
+
+# ---------------------------------------------------------------------------
+# delta=0.01-vs-delta=0.05 insensitivity check (Task 3, controller ruling
+# 2026-09-22 -- quantifies the residual approximation the high-precision
+# campaign definition carries, since it is no longer literally exact).
+# ---------------------------------------------------------------------------
+
+
+def _w2_sum_at_delta(
+    diagram: np.ndarray, baselines_m: dict, max_edge: float, max_hom_dim: int,
+    delta: float, timeout_s: float,
+) -> float:
+    """Per-dim Wasserstein-2 sum at a FIXED delta (no retry) -- helper for
+    `insensitivity_check`, which compares two fixed-delta variants directly
+    rather than the primary/retry-on-timeout logic in `exact_w2_flow`.
+    """
+    total = 0.0
+    for dim in range(max_hom_dim + 1):
+        flow_bd = probe._slice_dim(diagram, dim, max_edge)
+        base_bd = baselines_m[dim]
+        w = probe._w2_with_timeout(
+            flow_bd, base_bd, order=2.0, internal_p=2.0, delta=delta, timeout_sec=timeout_s,
+        )
+        total += w if np.isfinite(w) else 0.0
+    return float(total)
+
+
+def insensitivity_check(
+    ws: Workspace, exact_dir: Path, n: int = 500, rng_seed: int = 0,
+    timeout_s: float = 120.0, n_jobs: int = -1,
+) -> pd.DataFrame:
+    """Binary AUC at `delta=0.01` vs `delta=0.05` on an ``n``-flow test subsample.
+
+    Uses the SAME persisted baselines as the main campaign (`ensure_baselines`
+    -- never recomputes). Draws a deterministic subsample of ``n`` test flows
+    (`rng_seed`), computes the 7 `MANIFOLD_SUBSETS` W2 sums at each fixed
+    delta (no retry -- `_w2_sum_at_delta`), and returns one row per subset:
+    `auc_delta01`, `auc_delta05`, `delta_auc` (= auc_delta05 - auc_delta01),
+    `n_flows`. A small `|delta_auc|` demonstrates the AUC rank statistic is
+    insensitive to the residual approximation the high-precision campaign
+    definition (delta<=0.01, with a delta=0.05 timeout fallback) carries.
+    """
+    from joblib import Parallel, delayed
+
+    baselines = ensure_baselines(ws, exact_dir)
+    max_edge_lengths = json.loads((ws.outputs_dir / "max_edge_lengths.json").read_text())
+    labels, per_manifold_diagrams = _load_split_inputs(ws, "test")
+
+    rng = np.random.default_rng(rng_seed)
+    n_sample = min(n, len(labels))
+    idx = np.sort(rng.choice(len(labels), size=n_sample, replace=False))
+
+    def _row(i: int, delta: float) -> dict:
+        row: dict = {"row_idx": int(i), "label": labels[i]}
+        for m in config.MANIFOLDS:
+            row[f"W2_{m}"] = _w2_sum_at_delta(
+                per_manifold_diagrams[m][i], baselines[m], max_edge_lengths[m],
+                config.MAX_HOM_DIM[m], delta, timeout_s,
+            )
+        return row
+
+    frames: dict = {}
+    for delta in (0.01, 0.05):
+        parallel = Parallel(n_jobs=n_jobs)
+        rows = parallel(delayed(_row)(int(i), delta) for i in idx)
+        df = pd.DataFrame(rows, columns=["row_idx", "label", *[f"W2_{m}" for m in config.MANIFOLDS]])
+        for subset, manifolds in MANIFOLD_SUBSETS.items():
+            df[f"W2_{subset}"] = sum(df[f"W2_{m}"] for m in manifolds)
+        frames[delta] = df
+
+    y = (frames[0.01]["label"].to_numpy() != NORMAL).astype(int)
+    rows_out = []
+    for subset in MANIFOLD_SUBSETS:
+        auc01 = float(roc_auc_score(y, frames[0.01][f"W2_{subset}"].to_numpy()))
+        auc05 = float(roc_auc_score(y, frames[0.05][f"W2_{subset}"].to_numpy()))
+        rows_out.append({
+            "subset": subset, "auc_delta01": auc01, "auc_delta05": auc05,
+            "delta_auc": auc05 - auc01, "n_flows": n_sample,
+        })
+    return pd.DataFrame(rows_out)
+
+
+def write_insensitivity_check(ws: Workspace, df: pd.DataFrame) -> Path:
+    """Write `insensitivity_check` output to `exact_dir/insensitivity_check.csv` + provenance."""
+    exact_dir = _exact_dir(ws)
+    exact_dir.mkdir(parents=True, exist_ok=True)
+    out = exact_dir / "insensitivity_check.csv"
+    df.to_csv(out, index=False)
+    write_provenance(out, {"table": "insensitivity_check"})
+    return out

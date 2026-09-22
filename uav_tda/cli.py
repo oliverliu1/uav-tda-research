@@ -114,7 +114,13 @@ def _cmd_windowed_report(args: argparse.Namespace) -> int:
 
 
 def _cmd_exact(args: argparse.Namespace) -> int:
-    """Phase 6 Track A: run (or resume) the sharded exact-W2 campaign."""
+    """Phase 6 Track A: run (or resume) the sharded high-precision-W2 (delta<=0.01) campaign.
+
+    NOT literally exact -- hera delta=0.0 (true exact) was found intractable
+    (120s timeout hit on essentially every homology dim/flow); see
+    `uav_tda.exact` module docstring and `paper/EXACT_RESULTS.md` config
+    header for the full rationale.
+    """
     from . import exact
 
     ws = _workspace_for(args)
@@ -124,11 +130,7 @@ def _cmd_exact(args: argparse.Namespace) -> int:
 
 
 def _cmd_exact_report(args: argparse.Namespace) -> int:
-    """Phase 6 Track A: assemble campaign shards into definitive tables.
-
-    NOTE: `paper/EXACT_RESULTS.md` report generation lands in Task 3; this
-    subcommand currently stops after writing the CSV tables + provenance.
-    """
+    """Phase 6 Track A: assemble campaign shards into definitive high-precision tables."""
     from . import exact
 
     ws = _workspace_for(args)
@@ -255,7 +257,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bootstrap", type=int, default=2000)
     p.set_defaults(func=_cmd_windowed_report)
 
-    p = sub.add_parser("exact", help="Phase 6: sharded resumable exact-Wasserstein-2 campaign.")
+    p = sub.add_parser("exact", help="Phase 6: sharded resumable high-precision (delta<=0.01) Wasserstein-2 campaign.")
     _add_common_args(p)
     p.add_argument("--n-jobs", type=int, default=-1)
     p.add_argument("--shard-size", type=int, default=500)

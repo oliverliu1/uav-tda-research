@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from uav_tda import cli, exact, metrics, probe
+from uav_tda import cli, config, exact, metrics, probe
 from uav_tda.workspace import Workspace
 
 
@@ -60,6 +60,52 @@ def test_exact_w2_flow_timeout_path(monkeypatch):
     assert total == 0.0
     assert n_timeouts >= 1
     assert approx_flag is True
+
+
+def test_exact_w2_flow_uses_primary_then_retry_delta(monkeypatch):
+    """Campaign definition (2026-09-22 revision): first attempt at
+    `exact.PRIMARY_DELTA` (0.01, hera's own default tolerance -- delta=0.0
+    true-exact was found intractable at 120s on real diagrams); on timeout,
+    retry once at `exact.RETRY_DELTA` (0.05), NOT delta=0.0.
+    """
+    calls = []
+
+    def _fake_w2_with_timeout(d1, d2, order, internal_p, delta, timeout_sec):  # noqa: ARG001
+        calls.append(delta)
+        return float("nan") if delta == exact.PRIMARY_DELTA else 0.42
+
+    monkeypatch.setattr(probe, "_w2_with_timeout", _fake_w2_with_timeout)
+
+    diagram = np.array([[0.0, 0.1, 0.5]])
+    baselines_m = {0: np.array([[0.15, 0.55]])}
+    total, n_timeouts, approx_flag = exact.exact_w2_flow(
+        diagram, baselines_m, max_edge=1.0, max_hom_dim=0, timeout_s=10.0,
+    )
+    assert calls == [exact.PRIMARY_DELTA, exact.RETRY_DELTA]
+    assert 0.0 not in calls  # never attempts delta=0.0 (true exact) -- intractable, dropped
+    assert total == pytest.approx(0.42)
+    assert n_timeouts == 0
+    assert approx_flag is True
+
+
+def test_exact_w2_flow_primary_delta_success_no_retry(monkeypatch):
+    calls = []
+
+    def _fake_w2_with_timeout(d1, d2, order, internal_p, delta, timeout_sec):  # noqa: ARG001
+        calls.append(delta)
+        return 1.23
+
+    monkeypatch.setattr(probe, "_w2_with_timeout", _fake_w2_with_timeout)
+
+    diagram = np.array([[0.0, 0.1, 0.5]])
+    baselines_m = {0: np.array([[0.15, 0.55]])}
+    total, n_timeouts, approx_flag = exact.exact_w2_flow(
+        diagram, baselines_m, max_edge=1.0, max_hom_dim=0, timeout_s=10.0,
+    )
+    assert calls == [exact.PRIMARY_DELTA]
+    assert total == pytest.approx(1.23)
+    assert n_timeouts == 0
+    assert approx_flag is False
 
 
 # ---------------------------------------------------------------------------
@@ -466,3 +512,83 @@ def test_cli_registers_exact_report_subcommand_with_flags():
 
     defaults = parser.parse_args(["exact-report"])
     assert defaults.bootstrap == 2000
+
+
+# ---------------------------------------------------------------------------
+# insensitivity_check / write_insensitivity_check (Task 3, controller ruling
+# 2026-09-22)
+# ---------------------------------------------------------------------------
+
+
+def _make_workspace_with_test_split(tmp_path: Path, n_normal: int = 3, n_attack: int = 3) -> Workspace:
+    import pickle
+
+    ws = _make_workspace(tmp_path)
+    labels = ["Normal Traffic"] * n_normal + ["Sybil Attack"] * n_attack
+    pd.DataFrame({"label": labels}).to_csv(ws.outputs_dir / "labels_test.csv", index=False)
+
+    ws.persistence_dir.mkdir(parents=True, exist_ok=True)
+    n = n_normal + n_attack
+    for m in config.MANIFOLDS:
+        # Diagram content only needs to identify its row index (i encoded in
+        # [0, 0]) -- `_w2_sum_at_delta` is monkeypatched in these tests, so
+        # the real slicing/hera path is never exercised.
+        diagrams = [np.array([[float(i), 0.0, 0.0]]) for i in range(n)]
+        (ws.persistence_dir / f"{m}_test.pkl").write_bytes(pickle.dumps(diagrams))
+    return ws
+
+
+def test_insensitivity_check_shapes_and_perfect_separation(tmp_path, monkeypatch):
+    n_normal, n_attack = 3, 3
+    ws = _make_workspace_with_test_split(tmp_path, n_normal, n_attack)
+    exact_dir = ws.tables_dir / "rebuild" / "exact"
+
+    monkeypatch.setattr(exact, "ensure_baselines", lambda ws, exact_dir: {
+        m: {} for m in config.MANIFOLDS
+    })
+
+    def _fake_w2_sum_at_delta(diagram, baselines_m, max_edge, max_hom_dim, delta, timeout_s):  # noqa: ARG001
+        i = int(diagram[0, 0])
+        base = 10.0 if i >= n_normal else 1.0  # attack rows score strictly higher
+        bump = 0.0 if delta == 0.01 else 0.5  # delta=0.05 differs but doesn't flip rank order
+        return base + bump
+
+    monkeypatch.setattr(exact, "_w2_sum_at_delta", _fake_w2_sum_at_delta)
+
+    df = exact.insensitivity_check(ws, exact_dir, n=n_normal + n_attack, rng_seed=0, n_jobs=1)
+
+    assert set(df.columns) == {"subset", "auc_delta01", "auc_delta05", "delta_auc", "n_flows"}
+    assert len(df) == len(metrics.MANIFOLD_SUBSETS)
+    assert set(df["subset"]) == set(metrics.MANIFOLD_SUBSETS)
+    assert (df["n_flows"] == n_normal + n_attack).all()
+    assert np.allclose(df["auc_delta01"].to_numpy(), 1.0)
+    assert np.allclose(df["auc_delta05"].to_numpy(), 1.0)
+    assert np.allclose(df["delta_auc"].to_numpy(), 0.0)
+
+
+def test_insensitivity_check_respects_n_subsample(tmp_path, monkeypatch):
+    ws = _make_workspace_with_test_split(tmp_path, n_normal=5, n_attack=5)
+    exact_dir = ws.tables_dir / "rebuild" / "exact"
+
+    monkeypatch.setattr(exact, "ensure_baselines", lambda ws, exact_dir: {
+        m: {} for m in config.MANIFOLDS
+    })
+    monkeypatch.setattr(
+        exact, "_w2_sum_at_delta",
+        lambda diagram, baselines_m, max_edge, max_hom_dim, delta, timeout_s: float(diagram[0, 0]),  # noqa: ARG005
+    )
+
+    df = exact.insensitivity_check(ws, exact_dir, n=4, rng_seed=1, n_jobs=1)
+    assert (df["n_flows"] == 4).all()
+
+
+def test_write_insensitivity_check_writes_csv_and_provenance(tmp_path):
+    ws = _make_workspace(tmp_path)
+    df = pd.DataFrame([
+        {"subset": "all_three", "auc_delta01": 0.9, "auc_delta05": 0.899,
+         "delta_auc": -0.001, "n_flows": 500},
+    ])
+    path = exact.write_insensitivity_check(ws, df)
+    assert path == ws.tables_dir / "rebuild" / "exact" / "insensitivity_check.csv"
+    assert path.exists()
+    assert path.with_name(path.name + ".provenance.json").exists()
