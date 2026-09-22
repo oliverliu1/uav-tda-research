@@ -81,3 +81,19 @@ PROBE_DELTA = 0.2
 # Paper's three seeds first, then seven sequential seeds, for the
 # manuscript's ten-seed bootstrap-CI evaluation (Phase 4).
 MANUSCRIPT_SEEDS = (42, 7, 123, 0, 1, 2, 3, 4, 5, 6)
+
+# Time-windowed variant (Phase 5). See docs/superpowers/specs/2026-09-21-windowed-variant-design.md
+WINDOW_SIZES = (25, 50, 100, 200)
+WINDOWED_REPEATS = 10
+WINDOWED_SHUFFLE_SEEDS = tuple(range(10))
+# Bin edges for window attack_frac contamination curve; bin 0 = exactly 0.
+CONTAMINATION_BINS = (0.0, 0.25, 0.5, 0.75, 1.0)
+
+# Per-manifold exact-vs-sparse Rips decision for the windowed arm, fixed by
+# the Task-1 benchmark gate (median exact-call seconds at W=200, n_trials=3,
+# measured 2026-09-21 on real test-split windows):
+#   c2=0.744s, network=10.084s, physical=0.204s
+# None => exact Rips (median <= 2.0s budget); 0.5 => sparse epsilon fallback.
+# network exceeds the budget (H2 at 10 dense features), so it keeps the
+# sparse-Rips approximation; c2 and physical are exact => deterministic.
+WINDOWED_SPARSE = {"c2": None, "network": 0.5, "physical": None}
