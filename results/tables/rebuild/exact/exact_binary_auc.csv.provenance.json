@@ -1,0 +1,15 @@
+{
+  "artifact": "exact_binary_auc.csv",
+  "created_utc": "2026-09-23T00:24:02.851589+00:00",
+  "git_sha": "5f7610ac278c4999a5ec012db1e29d662933a333",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "table": "exact_binary_auc"
+  },
+  "uav_tda_version": "0.1.0"
+}

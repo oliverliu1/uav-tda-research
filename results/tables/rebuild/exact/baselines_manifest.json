@@ -1,0 +1,67 @@
+{
+  "created_utc": "2026-09-22T13:04:00.365043+00:00",
+  "manifolds": {
+    "c2": {
+      "0": {
+        "file": "baselines_c2_dim0.npy",
+        "shape": [
+          500,
+          2
+        ]
+      },
+      "1": {
+        "file": "baselines_c2_dim1.npy",
+        "shape": [
+          243,
+          2
+        ]
+      },
+      "2": {
+        "file": "baselines_c2_dim2.npy",
+        "shape": [
+          48,
+          2
+        ]
+      }
+    },
+    "network": {
+      "0": {
+        "file": "baselines_network_dim0.npy",
+        "shape": [
+          500,
+          2
+        ]
+      },
+      "1": {
+        "file": "baselines_network_dim1.npy",
+        "shape": [
+          76,
+          2
+        ]
+      },
+      "2": {
+        "file": "baselines_network_dim2.npy",
+        "shape": [
+          0,
+          2
+        ]
+      }
+    },
+    "physical": {
+      "0": {
+        "file": "baselines_physical_dim0.npy",
+        "shape": [
+          500,
+          2
+        ]
+      },
+      "1": {
+        "file": "baselines_physical_dim1.npy",
+        "shape": [
+          152,
+          2
+        ]
+      }
+    }
+  }
+}

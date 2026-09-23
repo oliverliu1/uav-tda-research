@@ -113,6 +113,63 @@ def _cmd_windowed_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_exact(args: argparse.Namespace) -> int:
+    """Phase 6 Track A: run (or resume) the sharded high-precision-W2 (delta<=0.01) campaign.
+
+    NOT literally exact -- hera delta=0.0 (true exact) was found intractable
+    (120s timeout hit on essentially every homology dim/flow); see
+    `uav_tda.exact` module docstring and `paper/EXACT_RESULTS.md` config
+    header for the full rationale.
+    """
+    from . import exact
+
+    ws = _workspace_for(args)
+    ws.ensure()
+    exact.run_exact_campaign(ws, n_jobs=args.n_jobs, shard_size=args.shard_size)
+    return 0
+
+
+def _cmd_exact_report(args: argparse.Namespace) -> int:
+    """Phase 6 Track A: assemble campaign shards into definitive high-precision tables
+    and write `paper/EXACT_RESULTS.md`.
+    """
+    from . import exact
+
+    ws = _workspace_for(args)
+    ws.ensure()
+    exact_dir = ws.tables_dir / "rebuild" / "exact"
+
+    tables = exact.build_exact_tables(ws, B=args.bootstrap)
+    paths = exact.write_exact_tables(ws, tables)
+    for name, path in paths.items():
+        print(f"wrote {path}")
+
+    test_df = exact.assemble_distances(exact_dir, "test")
+    tables["_n_timeouts_total"] = int(test_df["n_timeouts"].sum())
+
+    insens_df = exact.insensitivity_check(ws, exact_dir, n=500, rng_seed=0)
+    insens_path = exact.write_insensitivity_check(ws, insens_df)
+    print(f"wrote {insens_path}")
+    tables["insensitivity_check"] = insens_df
+
+    report_path = exact.write_exact_report(ws, tables)
+    print(f"wrote {report_path}")
+    return 0
+
+
+def _cmd_latency(args: argparse.Namespace) -> int:
+    """Phase 6 Track B: portable onboard-latency harness (full production
+    inference path, per-flow + windowed arms), writes `paper/LATENCY_RESULTS.md`.
+    """
+    from . import latency
+
+    ws = _workspace_for(args)
+    ws.ensure()
+    report_path = latency.run_latency(ws, n=args.n)
+    print(f"wrote {report_path}")
+    return 0
+
+
 def _workspace_for(args: argparse.Namespace) -> Workspace:
     if getattr(args, "root", None):
         return Workspace.at(Path(args.root))
@@ -227,6 +284,24 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_args(p)
     p.add_argument("--bootstrap", type=int, default=2000)
     p.set_defaults(func=_cmd_windowed_report)
+
+    p = sub.add_parser("exact", help="Phase 6: sharded resumable high-precision (delta<=0.01) Wasserstein-2 campaign.")
+    _add_common_args(p)
+    p.add_argument("--n-jobs", type=int, default=-1)
+    p.add_argument("--shard-size", type=int, default=500)
+    p.set_defaults(func=_cmd_exact)
+
+    p = sub.add_parser("exact-report",
+                        help="Phase 6: assemble the exact-W2 campaign into definitive tables.")
+    _add_common_args(p)
+    p.add_argument("--bootstrap", type=int, default=2000)
+    p.set_defaults(func=_cmd_exact_report)
+
+    p = sub.add_parser("latency",
+                        help="Phase 6: portable onboard-latency harness (per-flow + windowed).")
+    _add_common_args(p)
+    p.add_argument("--n", type=int, default=30)
+    p.set_defaults(func=_cmd_latency)
 
     p = sub.add_parser("prep", help="Phase 2: data prep and splits.")
     _add_common_args(p)
