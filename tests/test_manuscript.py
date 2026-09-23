@@ -2,7 +2,6 @@ import json
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from uav_tda import cli, config, manuscript
 

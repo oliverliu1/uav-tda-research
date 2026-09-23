@@ -28,6 +28,11 @@ uav-tda all             # every phase in order
 Additional analysis commands (not part of the ordered `prep`..`evaluate` pipeline above):
 
 ```bash
+uav-tda probe [--seed N] [--per-class N] [--top-k N] [--delta F] [--w2-timeout F] [--out PATH] [--znorm]
+                                                         # Run the unsupervised Wasserstein-2 probe (the tractable approximation to `unsupervised`); --znorm runs the coupled test+val Z-normalized scoring (paper Sec III.E) instead of the raw sum-scored probe
+uav-tda znorm-report                                    # Build the 3-seed znorm-vs-raw reanalysis report, write paper/ZNORM_RESULTS.md
+uav-tda manuscript-report [--seeds S] [--bootstrap B] [--w2-timeout F]
+                                                         # Phase 4: ensure the ten-seed campaign artifacts and build bootstrap-CI stats tables, write paper/MANUSCRIPT_STATS.md
 uav-tda windowed --w W [--order-seed N] [--repeat K]  # Phase 5: run one windowed-variant campaign-grid entry (time-windowed multi-manifold persistence; see docs/superpowers/specs/2026-09-21-windowed-variant-design.md)
 uav-tda windowed-report [--bootstrap B]                 # Phase 5: ensure the 80-run windowed campaign, build detection/attribution/contamination/frontier tables, write paper/WINDOWED_RESULTS.md
 uav-tda exact [--n-jobs N] [--shard-size N]             # Phase 6 Track A: sharded resumable high-precision (delta<=0.01) Wasserstein-2 campaign over the full test split (see uav_tda/exact.py)
@@ -69,8 +74,10 @@ Each is scaled independently on train only. The partition mirrors Zeng et al. (2
 
 ## File discipline (from PROJECT_BRIEF §9)
 
-**Read-only / frozen — do not modify:** `pipeline.py` (frozen equivalence oracle and historical record — do not modify), `data/` (immutable raw dataset), `outputs/` (pipeline-written), `logs/`, `scripts_archive/` (superseded pre-`pipeline.py` numbered scripts), `poster_eda/` (older EDA, contains a known-leakage backup).
+**Read-only / frozen — do not modify:** `pipeline.py` (frozen equivalence oracle and historical record — do not modify), `data/` (immutable raw dataset), `outputs/` (pipeline-written), `logs/`, `archive/` (quarantined legacy code — `poster_eda/`, `scripts_archive/`, `poster.jsx`; read-only history, not maintained; `archive/poster_eda/` in particular contains pre-fix backups with a **known data-leakage flaw** — never use it for results, see `archive/README.md`).
 
 **Write zones:** `uav_tda/` (the maintained package), `tests/`, `docs/` (plans and design notes, e.g. `docs/superpowers/plans/`), `paper/` (brief, drafts, diagnostics markdown), `results/tables/`, `results/figures/`, and `tools/` (diagnostic/probe scripts — note this dir may not exist yet and is created as needed).
 
 **Number provenance:** every number cited in the paper must trace to `paper/PROBE_RESULTS.md` or a `results/tables/*.csv`. Do not paraphrase or invent results.
+
+**Ops lessons (memory-pressured box):** chunk worker payloads instead of closing over large arrays/diagrams in the parent process (a re-pickled multi-hundred-MB closure per task exhausts memory before it exhausts CPU); keep `n_jobs<=3` for heavy campaigns (Rips/W2 at scale) even though more cores are visible; never fork inside a `loky` worker (nested `subprocess`/fork-based timeouts inside a joblib/loky worker are unstable on macOS — call the underlying library directly in-process instead); commit before launching any long detached run so the launched process's code state is reconstructable if the session ends first.

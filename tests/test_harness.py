@@ -1,10 +1,8 @@
-from pathlib import Path
-
-import numpy as np
 import pandas as pd
 import pytest
 
 from tests import monolith_harness as mh
+from tests.conftest import requires_data
 
 
 def test_pipeline_hash_stable(repo_root):
@@ -13,6 +11,7 @@ def test_pipeline_hash_stable(repo_root):
     assert len(h1) == 12
 
 
+@requires_data
 def test_make_monolith_workspace(tmp_path, repo_root):
     ws = mh.make_monolith_workspace(tmp_path / "ws", repo_root)
     assert (ws / "pipeline.py").is_file()

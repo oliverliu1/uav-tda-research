@@ -15,12 +15,16 @@ Note: the monolith's SECTION 11 defines its own module-level ``SEEDS = (42, 7,
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from . import config
 from .features import load_diagrams_pkl
 from .supervised import build_model, load_feature_split, load_labels_for
 from .tda import load_labels_for_split
 from .workspace import Workspace
+
+if TYPE_CHECKING:
+    import pandas
 
 log = logging.getLogger("uav_tda.evaluate")
 

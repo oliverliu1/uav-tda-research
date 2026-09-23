@@ -1,6 +1,7 @@
 import pathlib
 
 from uav_tda import cli
+from tests.conftest import requires_data
 
 
 def test_all_phase_subcommands_registered():
@@ -11,6 +12,7 @@ def test_all_phase_subcommands_registered():
         assert cmd in subactions.choices, cmd
 
 
+@requires_data
 def test_prep_debug_smoke(tmp_path):
     repo_root = pathlib.Path(__file__).resolve().parent.parent
     (tmp_path / "data").symlink_to(repo_root / "data")

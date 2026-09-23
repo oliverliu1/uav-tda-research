@@ -21,8 +21,6 @@ def test_truncate_top_k_empty():
     assert probe.truncate_top_k(np.empty((0, 2)), k=50).shape == (0, 2)
 
 
-import pandas as pd  # noqa: E402
-
 from uav_tda import metrics  # noqa: E402
 from uav_tda.paths import PERSISTENCE_DIR  # noqa: E402
 
