@@ -5,30 +5,19 @@ import pytest
 # tests/ lives directly under the repo root.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Shared portability guards (Phase-7 Task 2): a fresh clone has neither the
-# gitignored dataset nor any outputs/ artifacts, so any FAST (not slow) test
-# that touches either must self-skip rather than fail. Golden-master tests
-# that only read the committed `results/tables/**` oracles are NOT guarded --
-# those files ARE in git and CI must exercise them.
+# Shared portability guards (Phase-7 Task 2): data/UAVIDS-2025.csv is tracked
+# in git and ships with every clone, but these guards stay as forward-hedges
+# for clones/environments where it is absent -- e.g. if redistribution of the
+# dataset is later removed (see data/README.md) -- and for outputs/, which is
+# gitignored and populated only by running `uav-tda prep/tda/...` locally.
+# Golden-master tests that only read the committed `results/tables/**`
+# oracles are NOT guarded -- those files ARE in git and CI must exercise
+# them.
 #
 # `requires_data` guards the one dataset file fast tests may symlink/read.
 requires_data = pytest.mark.skipif(
     not (REPO_ROOT / "data" / "UAVIDS-2025.csv").exists(),
-    reason="local dataset (data/UAVIDS-2025.csv, gitignored) not present",
-)
-
-# `requires_outputs` guards the specific outputs/ artifact a fast test reads
-# (outputs/ is gitignored and populated only by running `uav-tda prep/tda/...`
-# locally). Default artifact is outputs/max_edge_lengths.json (written by the
-# `tda` phase); pass a different relative path for tests needing another file.
-def _outputs_artifact_missing(*relpath: str) -> bool:
-    parts = relpath or ("max_edge_lengths.json",)
-    return not (REPO_ROOT / "outputs" / Path(*parts)).exists()
-
-
-requires_outputs = pytest.mark.skipif(
-    _outputs_artifact_missing(),
-    reason="local outputs/max_edge_lengths.json (gitignored) not present",
+    reason="local dataset (data/UAVIDS-2025.csv) not present",
 )
 
 

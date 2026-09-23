@@ -29,10 +29,12 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
-      # Artifact-dependent tests self-skip on a fresh checkout: the gitignored
-      # dataset (data/UAVIDS-2025.csv) and outputs/ tree are not in git, so
-      # tests/conftest.py's `requires_data` / `requires_outputs` skipif
-      # guards fire here. Golden-master tests reading the committed
-      # `results/tables/**` oracles are NOT guarded and still run.
+      # The dataset (data/UAVIDS-2025.csv) IS in the repo and present on this
+      # checkout; outputs/ artifacts are not (gitignored, produced only by
+      # running the pipeline locally). Artifact-dependent tests self-skip
+      # here via tests/conftest.py's `requires_data` guard when a test would
+      # otherwise need pre-existing outputs/; the data-dependent smoke test
+      # runs (~90s cold). Golden-master tests reading the committed
+      # `results/tables/**` oracles are unguarded and always run.
       - name: Fast test suite
         run: python -m pytest -m "not slow" -q

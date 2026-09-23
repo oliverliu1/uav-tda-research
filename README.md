@@ -41,15 +41,24 @@ Full pipeline phases (`prep`, `tda`, `features`, `supervised`, `unsupervised`,
 ## Dataset
 
 `data/UAVIDS-2025.csv` (122,171 rows × 23 cols, Zeng et al., IEEE CNS 2025) is
-immutable and gitignored (~20MB). See `data/README.md` for provenance, sha256,
-and how a fresh clone obtains it. Prerequisites for most commands:
-`data/UAVIDS-2025.csv` present, then `uav-tda prep && uav-tda tda`.
+immutable and tracked in git (~19MB) — it ships with every clone. See
+`data/README.md` for provenance and the sha256 to verify any copy against.
+Prerequisites for most commands: `data/UAVIDS-2025.csv` present, then
+`uav-tda prep && uav-tda tda`.
+
+Note: this is a third-party benchmark dataset; whether to continue
+redistributing it in this repository is an author decision.
 
 ## Results docs
 
-Five machine-generated reports under `paper/`, each built from committed
-`results/tables/rebuild/*.csv`. **All pending author sign-off** — no number in
-any of them is yet approved for the manuscript:
+`paper/` also holds three historical provenance docs, kept as the
+as-published record rather than regenerated: `PROBE_RESULTS.md` (the
+published probe record `CLAUDE/CLAUDE.md`'s number-provenance rule points
+at), `MULTI_SEED_VARIANCE.md`, and `C2_NORMALIZATION_DIAGNOSTIC.md`.
+
+Alongside those, five machine-generated reports under `paper/`, each built
+from committed `results/tables/rebuild/*.csv`. **All pending author sign-off**
+— no number in any of them is yet approved for the manuscript:
 
 - `paper/EXACT_RESULTS.md` — full-test-split, high-precision (δ≤0.01)
   Wasserstein-2 campaign (Phase 6 Track A).
