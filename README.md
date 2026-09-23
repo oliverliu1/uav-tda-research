@@ -1,66 +1,83 @@
 # Multi-Manifold Persistent Homology for UAV Intrusion Detection
 
-**Anomaly Detection in Contested ISR Military Drone Swarms**
+Research codebase for a paper (target: AIAA SciTech 2027) applying persistent
+homology to three independent feature manifolds — C2, Network, Physical —
+extracted from UAV network traffic (UAVIDS-2025). Three surviving
+contributions: a label-free Wasserstein anomaly detector, per-attack manifold
+attribution, and agreement/divergence with Zeng et al. (2025)'s feature-level
+predictions. See `CLAUDE/PROJECT_BRIEF.md` for the full research framing,
+decisions, and abandoned approaches.
 
-This repository contains the implementation of a novel intrusion detection system for UAV networks using multi-manifold topological data analysis (TDA) with persistent homology.
+The `uav_tda/` package is the maintained implementation. `pipeline.py` is
+retained, unmodified, as the frozen equivalence oracle every `uav_tda` phase
+is tested against (and as the historical record of the paper's production
+run) — see `CLAUDE/CLAUDE.md` for details. Do not modify either.
 
-## Overview
-
-We apply persistent homology to three independent feature manifolds (C2, Network, Physical) extracted from UAV network traffic data. Topological features are computed via Vietoris-Rips filtration and combined with traditional ML classifiers to detect intrusion attacks.
-
-**Dataset**: UAVIDS-2025 benchmark (122,171 network flow records, 5 attack types)
-
-**Key Innovation**: Multi-manifold TDA pipeline that captures topological structure across command-control, network traffic, and physical proxy spaces.
-
-## Reproducing the paper's results
-
-The `uav-tda` CLI (installed via `pip install -e ".[dev]"`) is the maintained way to run the pipeline.
-`pipeline.py` is retained, unmodified, as the frozen equivalence oracle each `uav_tda` phase is tested
-against, and as the historical record of the paper's production run — it is not the recommended entry
-point going forward.
-
-Prerequisites: `data/UAVIDS-2025.csv` present, and Phase-2/3 artifacts built
-(`uav-tda prep && uav-tda tda`).
+## Install
 
 ```bash
-pip install -e ".[dev]"
-python -m pytest -m "not slow"          # fast: config + metrics locked to published oracle CSVs
-uav-tda probe --seed 42                  # writes results/tables/rebuild/probe_distances_seed42.csv
-uav-tda probe --seed 7
-uav-tda probe --seed 123
-python -m pytest -m slow                 # verifies rebuilt AUCs match the paper within seed variance (±0.05)
+pip install -e ".[dev]"     # python >=3.9 (developed against anaconda 3.9.7)
 ```
 
-Each run writes a `.provenance.json` sidecar recording seed, git SHA, and library versions. The published
-`results/tables/probe_distances*.csv` are the immutable as-submitted record and are never overwritten.
-
-### Pipeline phase commands
-
-`uav-tda` exposes each pipeline phase as a subcommand, run in order:
+## Quickstart
 
 ```bash
-uav-tda prep           # Phase 2: load CSV, stratified 70/15/15 split, per-manifold StandardScaler, write outputs/*.csv
-uav-tda tda             # Phase 3: per-flow Vietoris-Rips persistence diagrams vs reference cloud
-uav-tda features        # Phase 4: summary stats (8 per manifold/dim) + persistence images
-uav-tda supervised      # Phase 5: grid-searched LogReg/RF/SVM over 4 feature sets, curated RF
-uav-tda unsupervised    # Phase 6: Wasserstein-2 distances, thresholding, per-attack AUC
-uav-tda evaluate        # Phase 7: ablations, final tables, paper figures
-uav-tda all             # every phase in order
+make test              # fast suite: python -m pytest -m "not slow" -q (~103 tests, ~1 min)
+make lint               # ruff check .
+uav-tda --help           # full subcommand list
+uav-tda probe --seed 42  # one-command repro: writes results/tables/rebuild/probe_distances_seed42.csv
 ```
 
-Shared flags: `--debug` (fast smoke-test sample), `--root PATH` (workspace root, default: repo root).
-`tda`, `unsupervised`, and `all` also take `--n-jobs`; `tda` and `all` also take `--manifold {c2,network,physical,all}`, `--split {train,val,test,all}`,
-and `--seed`.
+Each `probe` run writes a `.provenance.json` sidecar (seed, git SHA, library
+versions). The published `results/tables/probe_distances*.csv` are the
+immutable as-submitted record and are never overwritten by reruns.
 
-**Legacy, equivalent:** the original monolith commands still work identically against `pipeline.py`
-and are kept for reference / oracle reproduction:
+Full pipeline phases (`prep`, `tda`, `features`, `supervised`, `unsupervised`,
+`evaluate`, or `all` in order) and analysis commands (`windowed`,
+`windowed-report`, `exact`, `exact-report`, `latency`, `znorm-report`,
+`manuscript-report`) are documented in `CLAUDE/CLAUDE.md`. Run
+`uav-tda <command> --help` for any subcommand's flags.
 
-```bash
-python pipeline.py prep
-python pipeline.py tda
-python pipeline.py features
-python pipeline.py supervised
-python pipeline.py unsupervised
-python pipeline.py evaluate
-python pipeline.py all
-```
+## Dataset
+
+`data/UAVIDS-2025.csv` (122,171 rows × 23 cols, Zeng et al., IEEE CNS 2025) is
+immutable and gitignored (~20MB). See `data/README.md` for provenance, sha256,
+and how a fresh clone obtains it. Prerequisites for most commands:
+`data/UAVIDS-2025.csv` present, then `uav-tda prep && uav-tda tda`.
+
+## Results docs
+
+Five machine-generated reports under `paper/`, each built from committed
+`results/tables/rebuild/*.csv`. **All pending author sign-off** — no number in
+any of them is yet approved for the manuscript:
+
+- `paper/EXACT_RESULTS.md` — full-test-split, high-precision (δ≤0.01)
+  Wasserstein-2 campaign (Phase 6 Track A).
+- `paper/LATENCY_RESULTS.md` — portable onboard-latency harness, per-flow and
+  windowed arms (Phase 6 Track B).
+- `paper/WINDOWED_RESULTS.md` — time-windowed multi-manifold persistence
+  variant, detection/attribution/contamination/frontier tables (Phase 5).
+- `paper/MANUSCRIPT_STATS.md` — ten-seed bootstrap-CI evaluation of the probe
+  approximation (Phase 4).
+- `paper/ZNORM_RESULTS.md` — clean-lineage Z-normalized-scoring reanalysis
+  vs. raw scoring, 3 seeds (Phase 3).
+
+## Disk
+
+`outputs/` is pipeline-written and gitignored, currently ~32G of regenerable
+artifacts (persistence diagrams, features, scalers). `uav-tda prep && uav-tda
+tda` (plus downstream phases as needed) rebuilds it from `data/` + seed 42.
+Deleting it locally to reclaim space is a local decision — nothing in `results/`
+or `paper/` depends on it surviving on disk.
+
+## Archive
+
+`archive/` holds quarantined legacy code (`poster_eda/`, `scripts_archive/`,
+`poster.jsx`) — read-only history, not maintained, not safe to run. See
+`archive/README.md`, in particular the data-leakage warning on
+`archive/poster_eda/`.
+
+## CI
+
+`.github/workflows/ci.yml` runs `ruff check .` and the fast test suite
+(`pytest -m "not slow"`) on push/PR to `main`, python 3.9, ubuntu-latest.
