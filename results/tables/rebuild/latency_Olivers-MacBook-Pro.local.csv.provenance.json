@@ -1,0 +1,29 @@
+{
+  "artifact": "latency_Olivers-MacBook-Pro.local.csv",
+  "created_utc": "2026-09-23T03:01:56.847006+00:00",
+  "git_sha": "5403b27a6717f6bfb83eb3545edde8f68b2b305c",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "hostname": "Olivers-MacBook-Pro.local",
+    "machine_info": {
+      "cpu_brand": "Apple M1 Pro",
+      "gudhi_version": "3.11.0",
+      "hardware_arch": "x86_64",
+      "hostname": "Olivers-MacBook-Pro.local",
+      "logical_cores": 8,
+      "machine": "x86_64",
+      "physical_cores": 8,
+      "platform": "Darwin",
+      "python_version": "3.9.7",
+      "timestamp_utc": "2026-09-23T03:01:55.725644+00:00"
+    },
+    "n": 30,
+    "regenerated": true
+  },
+  "uav_tda_version": "0.1.0"
+}

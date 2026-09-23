@@ -30,6 +30,9 @@ Additional analysis commands (not part of the ordered `prep`..`evaluate` pipelin
 ```bash
 uav-tda windowed --w W [--order-seed N] [--repeat K]  # Phase 5: run one windowed-variant campaign-grid entry (time-windowed multi-manifold persistence; see docs/superpowers/specs/2026-09-21-windowed-variant-design.md)
 uav-tda windowed-report [--bootstrap B]                 # Phase 5: ensure the 80-run windowed campaign, build detection/attribution/contamination/frontier tables, write paper/WINDOWED_RESULTS.md
+uav-tda exact [--n-jobs N] [--shard-size N]             # Phase 6 Track A: sharded resumable high-precision (delta<=0.01) Wasserstein-2 campaign over the full test split (see uav_tda/exact.py)
+uav-tda exact-report [--bootstrap B]                    # Phase 6 Track A: assemble the exact-W2 campaign shards into definitive AUC tables, write paper/EXACT_RESULTS.md
+uav-tda latency [--n N]                                 # Phase 6 Track B: portable onboard-latency harness (full standardize->Rips->slice->W2 path, per-flow + windowed arms), write paper/LATENCY_RESULTS.md
 ```
 
 Shared flags on every subcommand: `--debug` (fast stratified-sample smoke test — use this for any quick

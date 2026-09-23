@@ -157,6 +157,19 @@ def _cmd_exact_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_latency(args: argparse.Namespace) -> int:
+    """Phase 6 Track B: portable onboard-latency harness (full production
+    inference path, per-flow + windowed arms), writes `paper/LATENCY_RESULTS.md`.
+    """
+    from . import latency
+
+    ws = _workspace_for(args)
+    ws.ensure()
+    report_path = latency.run_latency(ws, n=args.n)
+    print(f"wrote {report_path}")
+    return 0
+
+
 def _workspace_for(args: argparse.Namespace) -> Workspace:
     if getattr(args, "root", None):
         return Workspace.at(Path(args.root))
@@ -283,6 +296,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_args(p)
     p.add_argument("--bootstrap", type=int, default=2000)
     p.set_defaults(func=_cmd_exact_report)
+
+    p = sub.add_parser("latency",
+                        help="Phase 6: portable onboard-latency harness (per-flow + windowed).")
+    _add_common_args(p)
+    p.add_argument("--n", type=int, default=30)
+    p.set_defaults(func=_cmd_latency)
 
     p = sub.add_parser("prep", help="Phase 2: data prep and splits.")
     _add_common_args(p)
