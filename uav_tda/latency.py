@@ -92,24 +92,74 @@ def _physical_cores() -> "int | None":
         return None
 
 
-def _hardware_arch() -> str:
-    """True physical CPU architecture via `uname -m`, independent of THIS
-    Python process's own build architecture.
+def _translated_under_rosetta() -> bool:
+    """True iff THIS process is running translated under Rosetta 2
+    (macOS `sysctl -n sysctl.proc_translated` == "1").
 
-    `platform.machine()` reports the architecture of the RUNNING PROCESS,
-    which can differ from the underlying hardware's on macOS under Rosetta
-    2 translation -- confirmed on this machine: an x86_64-build anaconda
-    Python 3.9.7 reports `platform.machine() == "x86_64"` while `uname -m`
-    (and `sysctl -n machdep.cpu.brand_string`, "Apple M1 Pro") both confirm
-    the actual silicon is ARM64. `run_latency`'s report discloses both
-    fields explicitly rather than assume they agree.
+    Returns False (never raises) when the sysctl doesn't exist (non-macOS,
+    or a macOS without Rosetta installed) or the call otherwise fails --
+    both cases genuinely mean "not translated" for this process.
     """
     import subprocess
 
     try:
-        return subprocess.check_output(["uname", "-m"], text=True, timeout=5.0).strip()
+        out = subprocess.check_output(
+            ["sysctl", "-n", "sysctl.proc_translated"], text=True, timeout=5.0,
+        ).strip()
+        return out == "1"
     except Exception:  # noqa: BLE001
-        return "unknown"
+        return False
+
+
+def _hardware_arch() -> str:
+    """True physical CPU architecture, independent of THIS Python process's
+    own build/personality.
+
+    `platform.machine()` reports the architecture of the RUNNING PROCESS's
+    personality, which can differ from the underlying hardware's on macOS
+    under Rosetta 2 translation. A plain `uname -m` subprocess call is NOT a
+    reliable independent check of this: `uname` is itself translated by
+    Rosetta when launched from a translated process, so it inherits the
+    SAME x86_64 personality and reports `x86_64` too -- confirmed on this
+    machine (anaconda Python 3.9.7, x86_64 build): shelling `uname -m` from
+    it returned `x86_64` despite the hardware being genuine Apple Silicon,
+    making that check self-refuting rather than independent.
+
+    The reliable macOS signal is `sysctl -n hw.optional.arm64`, a
+    kernel-level hardware-capability query (not a subprocess personality)
+    that reports `1` iff the PHYSICAL CPU is ARM64, regardless of which
+    architecture the calling (or any spawned) process was built for.
+    `machine_info` additionally surfaces `rosetta_translated`
+    (`sysctl -n sysctl.proc_translated`) so the report can present coherent,
+    non-self-refuting evidence: e.g. `cpu_brand` = "Apple M1 Pro" +
+    `rosetta_translated` = True + `hardware_arch` = "arm64" together mean
+    "Rosetta 2 translation on ARM64 silicon", verified via a kernel query
+    independent of the translated process's own personality.
+
+    Falls back to `/proc/cpuinfo` on Linux (no `sysctl`, and no Rosetta-style
+    translation layer to worry about there), and finally to
+    `platform.machine()` if neither signal is available.
+    """
+    import platform
+    import subprocess
+
+    try:
+        out = subprocess.check_output(
+            ["sysctl", "-n", "hw.optional.arm64"], text=True, timeout=5.0,
+        ).strip()
+        if out == "1":
+            return "arm64"
+        if out == "0":
+            return "x86_64"
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        text = Path("/proc/cpuinfo").read_text()
+        if any(line.lower().startswith("cpu architecture") for line in text.splitlines()):
+            return "arm64"
+    except Exception:  # noqa: BLE001
+        pass
+    return platform.machine() or "unknown"
 
 
 def machine_info() -> dict:
@@ -131,6 +181,7 @@ def machine_info() -> dict:
         "platform": platform.system(),
         "machine": platform.machine(),
         "hardware_arch": _hardware_arch(),
+        "rosetta_translated": _translated_under_rosetta(),
         "cpu_brand": _cpu_brand(),
         "physical_cores": _physical_cores(),
         "logical_cores": os.cpu_count(),
@@ -479,7 +530,16 @@ def _fmt_stat_row(r: pd.Series) -> str:
 def _write_latency_report(
     ws: Workspace, info: dict, per_flow_df: pd.DataFrame,
     windowed_frames: "dict[int, pd.DataFrame]", summary_df: pd.DataFrame, n: int,
+    render_note: "str | None" = None,
 ) -> Path:
+    """Render `paper/LATENCY_RESULTS.md` from already-computed frames.
+
+    ``render_note``, when given, is inserted as an extra disclosure
+    paragraph right after the intro -- used for a text-only RE-RENDER of an
+    already-measured report (e.g. wording/arch-detection fixes) so the
+    document itself discloses that no measurement was re-run. Production
+    runs (`run_latency`) never pass it.
+    """
     lines: list = []
     lines.append("# LATENCY_RESULTS: Portable Onboard-Latency Harness (Phase 6, Track B)")
     lines.append("")
@@ -491,51 +551,85 @@ def _write_latency_report(
         "restating and interpreting them._"
     )
     lines.append("")
+    if render_note:
+        lines.append(render_note)
+    lines.append("")
 
     # --- 1. Machine header ---------------------------------------------------
     lines.append("## 1. Machine header")
     lines.append("")
     lines.append("| Field | Value |")
     lines.append("| :--- | :--- |")
-    for key in ("platform", "machine", "hardware_arch", "cpu_brand", "physical_cores",
-                "logical_cores", "python_version", "gudhi_version", "hostname",
-                "timestamp_utc"):
+    for key in ("platform", "machine", "hardware_arch", "rosetta_translated", "cpu_brand",
+                "physical_cores", "logical_cores", "python_version", "gudhi_version",
+                "hostname", "timestamp_utc"):
         lines.append(f"| {key} | {info[key]} |")
     lines.append("")
 
     machine_field, hw_field = info["machine"], info["hardware_arch"]
-    if machine_field.lower() in ("arm64", "aarch64"):
-        arch_disclosure = (
-            f"this machine's `platform.machine()` reports `{machine_field}` (ARM64) "
-            "directly -- the SAME instruction-set family as deployment-class companion "
-            "boards (NVIDIA Jetson, Raspberry Pi)."
-        )
-    else:
+    translated = bool(info.get("rosetta_translated", False))
+    if hw_field.lower() in ("arm64", "aarch64") and translated:
         arch_disclosure = (
             f"**this Python process's `platform.machine()` reports `{machine_field}`, "
             f"NOT ARM64** -- this anaconda Python {info['python_version']} build is an "
             f"{machine_field} binary running under Apple's Rosetta 2 TRANSLATION LAYER "
-            f"on genuinely ARM64 hardware (confirmed independently: `uname -m` reports "
-            f"`{hw_field}` and `cpu_brand` reports \"{info['cpu_brand']}\", both naming "
-            "the true underlying Apple Silicon). The measurements below therefore ran "
-            "under x86_64-on-ARM64 EMULATION, not natively -- an ADDITIONAL disclosure "
-            "beyond the plan's original ARM-ISA-but-workstation-class framing: a "
-            "native-arm64 Python build on this same hardware could measure differently "
-            "(this report does not assume faster or slower either way), and a companion "
-            "board's Python (typically a native ARM64 build with no translation layer) "
-            "will not carry this same emulation overhead."
+            f"on genuinely ARM64 hardware. This is confirmed via a KERNEL-level hardware "
+            f"query, `sysctl -n hw.optional.arm64` (`hardware_arch` = `{hw_field}` above) "
+            "-- NOT via a plain `uname -m` subprocess call, which is itself translated by "
+            f"Rosetta when launched from a translated process and would self-defeatingly "
+            f"ALSO report `{machine_field}`, same as `platform.machine()`. "
+            "`sysctl -n sysctl.proc_translated` (`rosetta_translated` above) "
+            "independently confirms this process itself is the one being translated, and "
+            f"`cpu_brand` names the actual silicon as \"{info['cpu_brand']}\" -- "
+            "together, coherent, non-self-refuting evidence. The measurements below "
+            "therefore ran under x86_64-on-ARM64 EMULATION, not natively -- an "
+            "ADDITIONAL disclosure beyond the plan's original ARM-ISA-but-workstation-"
+            "class framing: a native-arm64 Python build on this same hardware could "
+            "measure differently (this report does not assume faster or slower either "
+            "way), and a companion board's Python (typically a native ARM64 build with "
+            "no translation layer) will not carry this same emulation overhead."
         )
+    elif hw_field.lower() in ("arm64", "aarch64"):
+        arch_disclosure = (
+            f"this machine's `platform.machine()` reports `{machine_field}` (ARM64) "
+            "directly -- the SAME instruction-set family as deployment-class companion "
+            "boards (NVIDIA Jetson, Raspberry Pi); `rosetta_translated` = False confirms "
+            "this process is running natively, with no translation layer involved."
+        )
+    else:
+        arch_disclosure = (
+            f"`hardware_arch` (the kernel-level `sysctl -n hw.optional.arm64` check on "
+            "macOS, or the `/proc/cpuinfo`/`platform.machine()` fallback elsewhere) "
+            f"reports `{hw_field}` -- a native, non-ARM host with no Rosetta-style "
+            f"translation layer involved (`rosetta_translated` = {translated})."
+        )
+
+    cpu_brand = info["cpu_brand"]
+    if cpu_brand.strip() == "Apple M1 Pro":
+        machine_narrative = (
+            "this is an Apple M1 Pro **workstation**: unified memory, thermal envelope, "
+            "core count, and clock behavior are all substantially above a Jetson Nano/Orin "
+            "or Raspberry Pi 4/5 running on battery/USB power in an airframe."
+        )
+    else:
+        machine_narrative = (
+            f"this is a workstation-class host (`cpu_brand` = \"{cpu_brand}\"): its power "
+            "budget, thermal envelope, core count, and clock behavior are presumptively "
+            "substantially above a Jetson Nano/Orin or Raspberry Pi 4/5 running on "
+            "battery/USB power in an airframe, though this has NOT been verified against "
+            "any specific companion-class board's datasheet -- a report generated on a "
+            "different host should confirm this assumption explicitly rather than inherit "
+            "it from a different machine's framing."
+        )
+
     lines.append(
         f"**ARM-ISA-but-workstation-class disclosure**: {arch_disclosure} Regardless of "
-        "the process architecture, this is an Apple M1 Pro **workstation**: unified "
-        "memory, thermal envelope, core count, and clock behavior are all substantially "
-        "above a Jetson Nano/Orin or Raspberry Pi 4/5 running on battery/USB power in an "
-        "airframe. The numbers below are therefore a LOWER BOUND on real onboard "
-        "latency, not a companion-hardware measurement -- disclosed per the user's "
-        "2026-09-22 decision to run the characterization on this machine "
-        "(workstation-class, ARM-ISA-disclosed) and ship a one-command-portable harness "
-        "(§6) for the eventual companion-class run, rather than block this report on "
-        "acquiring that hardware."
+        f"the process architecture, {machine_narrative} The numbers below are therefore a "
+        "LOWER BOUND on real onboard latency, not a companion-hardware measurement -- "
+        "disclosed per the user's 2026-09-22 decision to run the characterization on this "
+        "machine (workstation-class, ARM-ISA-disclosed) and ship a one-command-portable "
+        "harness (§6) for the eventual companion-class run, rather than block this report "
+        "on acquiring that hardware."
     )
     lines.append("")
 

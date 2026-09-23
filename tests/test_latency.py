@@ -27,13 +27,15 @@ from uav_tda.workspace import Workspace
 def test_machine_info_keys():
     info = latency.machine_info()
     expected_keys = {
-        "platform", "machine", "hardware_arch", "cpu_brand", "physical_cores",
-        "logical_cores", "python_version", "gudhi_version", "hostname", "timestamp_utc",
+        "platform", "machine", "hardware_arch", "rosetta_translated", "cpu_brand",
+        "physical_cores", "logical_cores", "python_version", "gudhi_version", "hostname",
+        "timestamp_utc",
     }
     assert expected_keys == set(info.keys())
     assert isinstance(info["platform"], str) and info["platform"]
     assert isinstance(info["machine"], str) and info["machine"]
     assert isinstance(info["hardware_arch"], str) and info["hardware_arch"]
+    assert isinstance(info["rosetta_translated"], bool)
     assert isinstance(info["cpu_brand"], str) and info["cpu_brand"]
     assert info["physical_cores"] is None or isinstance(info["physical_cores"], int)
     assert isinstance(info["logical_cores"], int) and info["logical_cores"] > 0
@@ -315,6 +317,63 @@ def test_build_summary_table_has_mean_median_p95_per_stage():
                        & (summary["stage"] == "total_s")].iloc[0]
     assert w_total["mean_s"] == pytest.approx(0.2)
     assert w_total["n"] == 2
+
+
+# ---------------------------------------------------------------------------
+# _write_latency_report (OPT-2 smoke test, final review)
+# ---------------------------------------------------------------------------
+
+
+def test_write_latency_report_smoke(tmp_path):
+    """Synthetic frames -> renders `paper/LATENCY_RESULTS.md`, no real Rips/hera
+    calls, tmp workspace only. Confirms the machine header and the paper-claim
+    check land in the rendered text, and that an optional `render_note` (used
+    for a text-only re-render disclosure) is included when given.
+    """
+    ws = Workspace.at(tmp_path)
+    ws.ensure()
+    info = {
+        "platform": "Darwin", "machine": "x86_64", "hardware_arch": "arm64",
+        "rosetta_translated": True, "cpu_brand": "Apple M1 Pro", "physical_cores": 8,
+        "logical_cores": 8, "python_version": "3.9.7", "gudhi_version": "3.11.0",
+        "hostname": "test-host", "timestamp_utc": "2026-01-01T00:00:00+00:00",
+    }
+    n = 3
+    stage_order = ["scaler_s", "rips_s", "slice_s", "w2_s", "total_s"]
+    per_flow_data: dict = {"row_idx": list(range(n))}
+    for m in config.MANIFOLDS:
+        for stage in stage_order:
+            per_flow_data[f"{m}_{stage}"] = [0.01, 0.02, 0.03]
+    per_flow_data["total_s"] = [0.03, 0.06, 0.09]
+    per_flow_df = pd.DataFrame(per_flow_data)
+
+    windowed_frames: dict = {}
+    for w in (25, 50):
+        w_data: dict = {
+            "window_idx": list(range(n)), "start_pos": list(range(n)),
+            "baseline_setup_s": [1.5] * n,
+        }
+        for m in config.MANIFOLDS:
+            w_data[f"{m}_rips_s"] = [0.001] * n
+            w_data[f"{m}_w2_s"] = [0.002] * n
+            w_data[f"{m}_total_s"] = [0.003] * n
+        w_data["total_s"] = [0.009] * n
+        windowed_frames[w] = pd.DataFrame(w_data)
+
+    summary_df = latency._build_summary_table(per_flow_df, windowed_frames)
+
+    report_path = latency._write_latency_report(
+        ws, info, per_flow_df, windowed_frames, summary_df, n,
+        render_note="_Re-rendered for a smoke test; not a real measurement._",
+    )
+
+    assert report_path == ws.root / "paper" / "LATENCY_RESULTS.md"
+    text = report_path.read_text()
+    assert "## 1. Machine header" in text
+    assert "Apple M1 Pro" in text
+    assert "## 4. Paper's \"1-3 s per flow\" claim vs measured" in text
+    assert "claimed 1-3s band" in text
+    assert "_Re-rendered for a smoke test; not a real measurement._" in text
 
 
 # ---------------------------------------------------------------------------

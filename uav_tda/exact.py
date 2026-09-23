@@ -373,17 +373,6 @@ def _process_chunk_for_manifold(
 # ---------------------------------------------------------------------------
 
 
-def _load_split_inputs(ws: Workspace, split: str) -> "tuple[np.ndarray, dict]":
-    import pickle
-
-    labels = pd.read_csv(ws.outputs_dir / f"labels_{split}.csv")["label"].to_numpy()
-    per_manifold_diagrams = {
-        m: pickle.loads((ws.persistence_dir / f"{m}_{split}.pkl").read_bytes())
-        for m in config.MANIFOLDS
-    }
-    return labels, per_manifold_diagrams
-
-
 def _shard_key(split: str, start: int) -> str:
     return f"{split}_{start:05d}"
 
@@ -785,15 +774,34 @@ def _w2_sum_at_delta(
     """Per-dim Wasserstein-2 sum at a FIXED delta (no retry) -- helper for
     `insensitivity_check`, which compares two fixed-delta variants directly
     rather than the primary/retry-on-timeout logic in `exact_w2_flow`.
+
+    Direct in-process hera call (2026-09-22, final-review HAZARD-FIX),
+    mirroring `direct_w2_flow`'s pattern -- NOT `probe._w2_with_timeout`'s
+    per-call `fork()` wrapper. `insensitivity_check` calls this under a
+    joblib/loky `Parallel` (via `_process_chunk_fixed_delta`), and forking
+    from inside an already-parallel worker is the exact anti-pattern that
+    caused the campaign's worker-churn launch failures (see module
+    docstring, `direct_w2_flow`'s docstring, and `run_shard`'s docstring).
+    Per-dim hera calls are wrapped in try/except, same diagnostic-and-safe
+    convention as `direct_w2_flow`: a caught exception contributes 0.0 to
+    that dim rather than propagating and killing the worker. `timeout_s` is
+    kept in the signature for call-site compatibility with
+    `_process_chunk_fixed_delta` (and the `insensitivity_check` tests that
+    monkeypatch this function) but is unused -- there is no fork-based
+    timeout on this path. Numbers already shipped in
+    `results/tables/rebuild/exact/insensitivity_check.csv` are NOT
+    recomputed by this change; it is forward-hygiene only.
     """
+    from gudhi.hera import wasserstein_distance as wdist  # noqa: PLC0415
+
     total = 0.0
     for dim in range(max_hom_dim + 1):
         flow_bd = probe._slice_dim(diagram, dim, max_edge)
         base_bd = baselines_m[dim]
-        w = probe._w2_with_timeout(
-            flow_bd, base_bd, order=2.0, internal_p=2.0, delta=delta, timeout_sec=timeout_s,
-        )
-        total += w if np.isfinite(w) else 0.0
+        try:
+            total += float(wdist(flow_bd, base_bd, order=2.0, internal_p=2.0, delta=delta))
+        except Exception as exc:  # noqa: BLE001
+            log.error("_w2_sum_at_delta: hera exception dim=%d delta=%s: %r", dim, delta, exc)
     return float(total)
 
 
@@ -1200,6 +1208,15 @@ def _render_exact_report(ws: Workspace, tables: "dict[str, pd.DataFrame]", n_val
         "Author sign-off required before use, per this project's standing report-not-"
         "loosen convention: every number above is machine-generated from the committed "
         "`results/tables/rebuild/exact/*.csv` tables and traces to them."
+    )
+    lines.append("")
+    lines.append(
+        "**Manuscript wording correction**: per §1.1-1.2 above, this campaign is NOT "
+        "literally exact (hera `delta=0.0` was found intractable at 120s on real "
+        "diagrams, and the POT-backed exact LAP alternative is unavailable without a new "
+        "dependency) -- the manuscript's §V word \"exact\" must be amended to "
+        "\"high-precision (delta<=0.01)\" to accurately describe this campaign wherever it "
+        "appears."
     )
     lines.append("")
 

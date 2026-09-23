@@ -124,3 +124,5 @@ Max |delta| across all 7 subsets: **0.0002** -- negligible; the AUC rank statist
 ## 6. Pending sign-off
 
 These are the definitive, full-test, high-precision (delta<=0.01) Wasserstein-2 numbers -- candidates for the manuscript's §V "exact full-test" claim. Author sign-off required before use, per this project's standing report-not-loosen convention: every number above is machine-generated from the committed `results/tables/rebuild/exact/*.csv` tables and traces to them.
+
+**Manuscript wording correction**: per §1.1-1.2 above, this campaign is NOT literally exact (hera `delta=0.0` was found intractable at 120s on real diagrams, and the POT-backed exact LAP alternative is unavailable without a new dependency) -- the manuscript's §V word "exact" must be amended to "high-precision (delta<=0.01)" to accurately describe this campaign wherever it appears.

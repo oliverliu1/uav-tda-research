@@ -1,7 +1,7 @@
 {
   "artifact": "latency_Olivers-MacBook-Pro.local.csv",
-  "created_utc": "2026-09-23T03:01:56.847006+00:00",
-  "git_sha": "5403b27a6717f6bfb83eb3545edde8f68b2b305c",
+  "created_utc": "2026-09-23T03:26:46.642586+00:00",
+  "git_sha": "69e4c56105d5b4c2e5f4cc39fe664ea9b4460e60",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",
@@ -13,17 +13,19 @@
     "machine_info": {
       "cpu_brand": "Apple M1 Pro",
       "gudhi_version": "3.11.0",
-      "hardware_arch": "x86_64",
+      "hardware_arch": "arm64",
       "hostname": "Olivers-MacBook-Pro.local",
       "logical_cores": 8,
       "machine": "x86_64",
       "physical_cores": 8,
       "platform": "Darwin",
       "python_version": "3.9.7",
+      "rosetta_translated": true,
       "timestamp_utc": "2026-09-23T03:01:55.725644+00:00"
     },
     "n": 30,
-    "regenerated": true
+    "rerender_reason": "final-review F1/F2: corrected hardware_arch detection (sysctl hw.optional.arm64 instead of a Rosetta-translated `uname -m`) and parameterized machine narrative; measurement NOT re-run, original measurement timestamp_utc=2026-09-23T03:01:55.725644+00:00",
+    "rerendered_utc": "2026-09-23T03:26:46.598136+00:00"
   },
   "uav_tda_version": "0.1.0"
 }
