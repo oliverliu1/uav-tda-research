@@ -791,10 +791,14 @@ def test_write_exact_report_renders_all_sections(tmp_path, monkeypatch):
         assert attack in text
         assert expected_m in text
 
-    # Row-count / timeout disclosure reflects the real inputs.
+    # Row-count / exception disclosure reflects the real inputs.
     assert f"{len(val_df):,}" in text
     assert f"{len(test_df):,}" in text
-    assert "0 timeouts, 0 approx-flagged flows" in text
+    assert "0 caught hera" in text
+    assert "0 flows fell back to delta=0.05" in text
+    # No wall-clock timeout on the hot path -- must be stated plainly, not implied.
+    assert "NO wall-clock timeout" in text
+    assert "manifest.json" in text  # manual-kill + resume hang-recovery story
 
 
 def test_write_exact_report_flags_dominance_mismatch(tmp_path, monkeypatch):

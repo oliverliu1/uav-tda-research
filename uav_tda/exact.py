@@ -946,11 +946,17 @@ def _render_exact_report(ws: Workspace, tables: "dict[str, pd.DataFrame]", n_val
     lines.append("")
     lines.append(
         f"- **Campaign definition (NOT literally exact -- see §1.1-1.2)**: hera "
-        f"`order=2.0, internal_p=2.0`, first attempt `delta={PRIMARY_DELTA}` (hera's own "
-        f"default 1%-relative-error tolerance), retry-once `delta={RETRY_DELTA}` (5%) on a "
-        "120s per-call fork-timeout; on the campaign's hot path (`direct_w2_flow`, called "
-        "per (manifold, ~100-flow chunk) via `_process_chunk_for_manifold`) this runs "
-        "in-process with no forking -- see §1.3."
+        f"`order=2.0, internal_p=2.0, delta={PRIMARY_DELTA}` (hera's own default "
+        "1%-relative-error tolerance) run DIRECTLY IN-PROCESS on the campaign's hot path "
+        "(`direct_w2_flow`, called per (manifold, ~100-flow chunk) via "
+        "`_process_chunk_for_manifold`) -- **this hot-path call has NO wall-clock "
+        "timeout**; a per-dim call is wrapped only in a Python try/except that catches "
+        "an exception (contributing 0.0 to that dim and flagging the flow), NOT a "
+        "time-bounded cutoff. The 120s fork-timeout + "
+        f"`delta={RETRY_DELTA}` retry-on-timeout machinery (`exact_w2_flow`) is a "
+        "SEPARATE, non-hot-path function used only for the pre-launch delta=0.0 "
+        "intractability benchmark (§1.1) and interactive/test use -- it is never called "
+        "by the campaign itself. See §1.3."
     )
     lines.append(
         f"- **Row counts**: val-Normal {n_val:,} + test {n_test:,} = "
@@ -958,9 +964,23 @@ def _render_exact_report(ws: Workspace, tables: "dict[str, pd.DataFrame]", n_val
         "test split (18,326) + val Normal-only (3,926) scope exactly."
     )
     lines.append(
-        f"- **Timeout/approx disclosure**: **{n_timeouts_total} timeouts, {n_approx} "
-        f"approx-flagged flows** across all {n_val + n_test:,} campaign flows (expected "
-        "~0 at 120s for delta<=0.01 -- confirmed)."
+        f"- **Hang recovery**: since the hot path has no wall-clock timeout, a genuine "
+        "hera hang would require a manual kill of the campaign process; relaunching "
+        "`uav-tda exact` resumes from the last completed shard in `manifest.json` "
+        "against the SAME persisted baselines (never recomputed). This was never needed "
+        "-- the campaign completed all 45 shards without any manual intervention."
+    )
+    lines.append(
+        f"- **Exception/fallback disclosure**: **{n_timeouts_total} caught hera "
+        f"exceptions; {n_approx} flows fell back to delta={RETRY_DELTA}** across all "
+        f"{n_val + n_test:,} campaign flows. These are NOT wall-clock-timeout counts -- "
+        "the hot path (`direct_w2_flow`) has no timeout to hit; a caught exception on "
+        "this path simply zeroes that dimension's contribution and flags the flow, with "
+        "**no retry attempt at all** (unlike `exact_w2_flow`, where "
+        f"`delta={RETRY_DELTA}` is an actual retried call -- that machinery is not part "
+        "of the hot path, so \"flows fell back to delta=0.05\" is reported here only for "
+        "continuity with `exact_w2_flow`'s column semantics, not because the hot path "
+        "attempts that retry)."
         + (" No `exact_binary_auc_excl_flagged` table was generated (nothing to exclude)."
            if excl_flagged is None else
            " An `exact_binary_auc_excl_flagged` table is included below since >0 flows "
