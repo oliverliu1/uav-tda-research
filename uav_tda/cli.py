@@ -130,15 +130,30 @@ def _cmd_exact(args: argparse.Namespace) -> int:
 
 
 def _cmd_exact_report(args: argparse.Namespace) -> int:
-    """Phase 6 Track A: assemble campaign shards into definitive high-precision tables."""
+    """Phase 6 Track A: assemble campaign shards into definitive high-precision tables
+    and write `paper/EXACT_RESULTS.md`.
+    """
     from . import exact
 
     ws = _workspace_for(args)
     ws.ensure()
+    exact_dir = ws.tables_dir / "rebuild" / "exact"
+
     tables = exact.build_exact_tables(ws, B=args.bootstrap)
     paths = exact.write_exact_tables(ws, tables)
     for name, path in paths.items():
         print(f"wrote {path}")
+
+    test_df = exact.assemble_distances(exact_dir, "test")
+    tables["_n_timeouts_total"] = int(test_df["n_timeouts"].sum())
+
+    insens_df = exact.insensitivity_check(ws, exact_dir, n=500, rng_seed=0)
+    insens_path = exact.write_insensitivity_check(ws, insens_df)
+    print(f"wrote {insens_path}")
+    tables["insensitivity_check"] = insens_df
+
+    report_path = exact.write_exact_report(ws, tables)
+    print(f"wrote {report_path}")
     return 0
 
 

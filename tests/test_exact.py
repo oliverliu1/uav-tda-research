@@ -748,3 +748,99 @@ def test_write_insensitivity_check_writes_csv_and_provenance(tmp_path):
     assert path == ws.tables_dir / "rebuild" / "exact" / "insensitivity_check.csv"
     assert path.exists()
     assert path.with_name(path.name + ".provenance.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# write_exact_report (Task 3, Step 3)
+# ---------------------------------------------------------------------------
+
+
+def test_write_exact_report_renders_all_sections(tmp_path, monkeypatch):
+    ws = _make_workspace(tmp_path)
+    _write_fake_probe_table(ws)
+    val_df, test_df = _make_synthetic_val_test()
+    _patch_assemble(monkeypatch, val_df, test_df)
+
+    tables = exact.build_exact_tables(ws, B=10, bootstrap_seed=0)
+    tables["_n_timeouts_total"] = 0
+    tables["insensitivity_check"] = pd.DataFrame([
+        {"subset": s, "auc_delta01": 0.9, "auc_delta05": 0.898, "delta_auc": -0.002, "n_flows": 500}
+        for s in metrics.MANIFOLD_SUBSETS
+    ])
+
+    report_path = exact.write_exact_report(ws, tables)
+
+    assert report_path == ws.root / "paper" / "EXACT_RESULTS.md"
+    assert report_path.exists()
+    text = report_path.read_text()
+
+    # Config header content.
+    assert "delta=0.0" in text or "delta<=0.01" in text
+    assert "361.40" in text  # delta=0 intractability benchmark numbers
+    assert "import ot" in text  # POT unavailability
+    assert "fork()" in text or "closure" in text  # launch-engineering story
+    assert "Sparse Rips" in text or "sparse-Rips" in text  # persisted-baseline note
+
+    # Table sections.
+    assert "## 2. Definitive binary AUC" in text
+    assert "## 3. Per-attack dominant-manifold attribution" in text
+    assert "## 4. Exact vs probe" in text
+    assert "## 5. delta-insensitivity check" in text
+    assert "## 6. Pending sign-off" in text
+    for attack, expected_m in _ATTACK_DOMINANT_MANIFOLD.items():
+        assert attack in text
+        assert expected_m in text
+
+    # Row-count / timeout disclosure reflects the real inputs.
+    assert f"{len(val_df):,}" in text
+    assert f"{len(test_df):,}" in text
+    assert "0 timeouts, 0 approx-flagged flows" in text
+
+
+def test_write_exact_report_flags_dominance_mismatch(tmp_path, monkeypatch):
+    """If a per-attack dominant manifold does NOT match the expected
+    per-flow attribution (Sybil/Flooding->network, Blackhole/Wormhole
+    ->physical), the report must say so explicitly rather than silently
+    reporting a clean match -- this is the T3 sanity-gate signal made
+    human-readable.
+    """
+    ws = _make_workspace(tmp_path)
+    _write_fake_probe_table(ws)
+    # Flip Sybil's dominant manifold to physical (wrong) by construction.
+    flipped = dict(_ATTACK_DOMINANT_MANIFOLD)
+    flipped["Sybil Attack"] = "physical"
+
+    rng = np.random.default_rng(0)
+
+    def _manifold_values(dominant):
+        vals = {m: float(rng.uniform(0.0, 1.0)) for m in ("c2", "network", "physical")}
+        if dominant is not None:
+            vals[dominant] += 5.0
+        return vals
+
+    val_rows = []
+    for i in range(8):
+        row = {"row_idx": i, "label": "Normal Traffic", "n_timeouts": 0, "approx_flag": False}
+        row.update({f"W2_{m}": v for m, v in _manifold_values(None).items()})
+        val_rows.append(row)
+    val_df = _add_subset_cols(pd.DataFrame(val_rows))
+
+    classes = ["Normal Traffic", *flipped.keys()]
+    test_rows = []
+    idx = 0
+    for label in classes:
+        dominant = flipped.get(label)
+        for _ in range(6):
+            row = {"row_idx": idx, "label": label, "n_timeouts": 0, "approx_flag": False}
+            row.update({f"W2_{m}": v for m, v in _manifold_values(dominant).items()})
+            test_rows.append(row)
+            idx += 1
+    test_df = _add_subset_cols(pd.DataFrame(test_rows))
+
+    _patch_assemble(monkeypatch, val_df, test_df)
+    tables = exact.build_exact_tables(ws, B=10, bootstrap_seed=0)
+    tables["_n_timeouts_total"] = 0
+
+    report_path = exact.write_exact_report(ws, tables)
+    text = report_path.read_text()
+    assert "MISMATCH" in text

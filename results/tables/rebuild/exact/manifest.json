@@ -1,0 +1,409 @@
+{
+  "shards": {
+    "test_00000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T17:15:07.894979+00:00",
+      "n_rows": 500,
+      "path": "shard_test_00000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 0
+    },
+    "test_00500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T17:23:02.553702+00:00",
+      "n_rows": 500,
+      "path": "shard_test_00500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 500
+    },
+    "test_01000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T17:31:05.467935+00:00",
+      "n_rows": 500,
+      "path": "shard_test_01000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 1000
+    },
+    "test_01500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T17:39:18.719744+00:00",
+      "n_rows": 500,
+      "path": "shard_test_01500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 1500
+    },
+    "test_02000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T17:47:27.266057+00:00",
+      "n_rows": 500,
+      "path": "shard_test_02000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 2000
+    },
+    "test_02500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T17:56:20.620910+00:00",
+      "n_rows": 500,
+      "path": "shard_test_02500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 2500
+    },
+    "test_03000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T18:06:13.156077+00:00",
+      "n_rows": 500,
+      "path": "shard_test_03000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 3000
+    },
+    "test_03500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T18:16:09.466703+00:00",
+      "n_rows": 500,
+      "path": "shard_test_03500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 3500
+    },
+    "test_04000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T18:26:15.605850+00:00",
+      "n_rows": 500,
+      "path": "shard_test_04000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 4000
+    },
+    "test_04500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T18:36:44.125272+00:00",
+      "n_rows": 500,
+      "path": "shard_test_04500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 4500
+    },
+    "test_05000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T18:47:00.351145+00:00",
+      "n_rows": 500,
+      "path": "shard_test_05000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 5000
+    },
+    "test_05500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T18:57:08.536154+00:00",
+      "n_rows": 500,
+      "path": "shard_test_05500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 5500
+    },
+    "test_06000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T19:07:29.984139+00:00",
+      "n_rows": 500,
+      "path": "shard_test_06000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 6000
+    },
+    "test_06500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T19:17:45.749509+00:00",
+      "n_rows": 500,
+      "path": "shard_test_06500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 6500
+    },
+    "test_07000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T19:28:17.167960+00:00",
+      "n_rows": 500,
+      "path": "shard_test_07000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 7000
+    },
+    "test_07500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T19:36:42.568405+00:00",
+      "n_rows": 500,
+      "path": "shard_test_07500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 7500
+    },
+    "test_08000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T19:44:55.155678+00:00",
+      "n_rows": 500,
+      "path": "shard_test_08000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 8000
+    },
+    "test_08500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T19:54:29.462473+00:00",
+      "n_rows": 500,
+      "path": "shard_test_08500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 8500
+    },
+    "test_09000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T20:03:54.455335+00:00",
+      "n_rows": 500,
+      "path": "shard_test_09000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 9000
+    },
+    "test_09500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T20:13:30.482887+00:00",
+      "n_rows": 500,
+      "path": "shard_test_09500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 9500
+    },
+    "test_10000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T20:22:14.710336+00:00",
+      "n_rows": 500,
+      "path": "shard_test_10000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 10000
+    },
+    "test_10500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T20:31:48.077617+00:00",
+      "n_rows": 500,
+      "path": "shard_test_10500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 10500
+    },
+    "test_11000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T20:41:35.966035+00:00",
+      "n_rows": 500,
+      "path": "shard_test_11000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 11000
+    },
+    "test_11500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T20:50:59.390009+00:00",
+      "n_rows": 500,
+      "path": "shard_test_11500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 11500
+    },
+    "test_12000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T20:59:52.698561+00:00",
+      "n_rows": 500,
+      "path": "shard_test_12000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 12000
+    },
+    "test_12500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T21:08:37.361034+00:00",
+      "n_rows": 500,
+      "path": "shard_test_12500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 12500
+    },
+    "test_13000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T21:17:36.092953+00:00",
+      "n_rows": 500,
+      "path": "shard_test_13000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 13000
+    },
+    "test_13500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T21:26:58.760478+00:00",
+      "n_rows": 500,
+      "path": "shard_test_13500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 13500
+    },
+    "test_14000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T21:35:02.864836+00:00",
+      "n_rows": 500,
+      "path": "shard_test_14000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 14000
+    },
+    "test_14500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T21:44:21.105601+00:00",
+      "n_rows": 500,
+      "path": "shard_test_14500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 14500
+    },
+    "test_15000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T21:54:03.481915+00:00",
+      "n_rows": 500,
+      "path": "shard_test_15000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 15000
+    },
+    "test_15500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T22:03:35.147505+00:00",
+      "n_rows": 500,
+      "path": "shard_test_15500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 15500
+    },
+    "test_16000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T22:12:55.833177+00:00",
+      "n_rows": 500,
+      "path": "shard_test_16000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 16000
+    },
+    "test_16500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T22:21:13.708126+00:00",
+      "n_rows": 500,
+      "path": "shard_test_16500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 16500
+    },
+    "test_17000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T22:29:33.862530+00:00",
+      "n_rows": 500,
+      "path": "shard_test_17000.csv",
+      "size": 500,
+      "split": "test",
+      "start": 17000
+    },
+    "test_17500": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T22:37:27.264090+00:00",
+      "n_rows": 500,
+      "path": "shard_test_17500.csv",
+      "size": 500,
+      "split": "test",
+      "start": 17500
+    },
+    "test_18000": {
+      "class_filter": null,
+      "completed_utc": "2026-09-22T22:42:19.478813+00:00",
+      "n_rows": 326,
+      "path": "shard_test_18000.csv",
+      "size": 326,
+      "split": "test",
+      "start": 18000
+    },
+    "val_00000": {
+      "class_filter": "Normal Traffic",
+      "completed_utc": "2026-09-22T15:54:50.225548+00:00",
+      "n_rows": 500,
+      "path": "shard_val_00000.csv",
+      "size": 500,
+      "split": "val",
+      "start": 0
+    },
+    "val_00500": {
+      "class_filter": "Normal Traffic",
+      "completed_utc": "2026-09-22T16:11:08.691587+00:00",
+      "n_rows": 500,
+      "path": "shard_val_00500.csv",
+      "size": 500,
+      "split": "val",
+      "start": 500
+    },
+    "val_01000": {
+      "class_filter": "Normal Traffic",
+      "completed_utc": "2026-09-22T16:20:26.676685+00:00",
+      "n_rows": 500,
+      "path": "shard_val_01000.csv",
+      "size": 500,
+      "split": "val",
+      "start": 1000
+    },
+    "val_01500": {
+      "class_filter": "Normal Traffic",
+      "completed_utc": "2026-09-22T16:29:30.074018+00:00",
+      "n_rows": 500,
+      "path": "shard_val_01500.csv",
+      "size": 500,
+      "split": "val",
+      "start": 1500
+    },
+    "val_02000": {
+      "class_filter": "Normal Traffic",
+      "completed_utc": "2026-09-22T16:39:07.647521+00:00",
+      "n_rows": 500,
+      "path": "shard_val_02000.csv",
+      "size": 500,
+      "split": "val",
+      "start": 2000
+    },
+    "val_02500": {
+      "class_filter": "Normal Traffic",
+      "completed_utc": "2026-09-22T16:48:44.960015+00:00",
+      "n_rows": 500,
+      "path": "shard_val_02500.csv",
+      "size": 500,
+      "split": "val",
+      "start": 2500
+    },
+    "val_03000": {
+      "class_filter": "Normal Traffic",
+      "completed_utc": "2026-09-22T16:58:08.875799+00:00",
+      "n_rows": 500,
+      "path": "shard_val_03000.csv",
+      "size": 500,
+      "split": "val",
+      "start": 3000
+    },
+    "val_03500": {
+      "class_filter": "Normal Traffic",
+      "completed_utc": "2026-09-22T17:07:09.447132+00:00",
+      "n_rows": 426,
+      "path": "shard_val_03500.csv",
+      "size": 426,
+      "split": "val",
+      "start": 3500
+    }
+  }
+}
