@@ -145,14 +145,17 @@ def missing_seeds(seeds: tuple[int, ...], rebuild_dir: Path) -> list[int]:
     return missing
 
 
-def run_missing_seeds(seeds: tuple[int, ...], w2_timeout: float = 30.0) -> None:
+def run_missing_seeds(
+    seeds: tuple[int, ...], w2_timeout: float = 30.0, rebuild_dir: Path | None = None,
+) -> None:
     """Run the Phase-3 znorm probe for each seed in `seeds` lacking artifacts.
 
-    Writes into the default `results/tables/rebuild/` location via
-    `run_znorm_probe_and_write` (the same writer the `uav-tda probe --znorm`
-    CLI path uses), so already-present seeds are left untouched.
+    Writes into `rebuild_dir` (default: `results/tables/rebuild/`, the same
+    location `run_znorm_probe_and_write` uses for the `uav-tda probe --znorm`
+    CLI path), so already-present seeds are left untouched.
     """
-    rebuild_dir = TABLES_DIR / "rebuild"
+    if rebuild_dir is None:
+        rebuild_dir = TABLES_DIR / "rebuild"
     for seed in missing_seeds(seeds, rebuild_dir):
         run_znorm_probe_and_write(seed=seed, w2_timeout=w2_timeout, rebuild_dir=rebuild_dir)
 
@@ -577,7 +580,7 @@ def build_manuscript_stats(
     # sibling paper/ dir so tests never touch the real paper/ tree.
     paper_dir = PAPER_DIR if rebuild == (TABLES_DIR / "rebuild") else (rebuild.parent / "paper")
 
-    run_missing_seeds(seeds, w2_timeout=w2_timeout)
+    run_missing_seeds(seeds, w2_timeout=w2_timeout, rebuild_dir=rebuild)
 
     seed_frames = load_seed_frames(seeds, rebuild)
     binary_df = build_binary_auc_table(seed_frames, B=B, bootstrap_seed=bootstrap_seed)

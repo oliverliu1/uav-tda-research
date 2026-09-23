@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from tests import monolith_harness as mh

@@ -1,4 +1,4 @@
-"""Phase 5 — time-windowed multi-manifold persistence (core).
+"""Phase 5 — time-windowed multi-manifold persistence.
 
 Implements the windowed variant of docs/superpowers/specs/
 2026-09-21-windowed-variant-design.md §2: non-overlapping FlowID-order
@@ -10,6 +10,21 @@ plus the exact-Rips benchmark gate that fixes config.WINDOWED_SPARSE.
 `window_diagram` mirrors the body of `tda._persistence_for_point` minus
 the query-point stacking, so diagram conventions ((n, 3) [dim, birth,
 death] float rows; empty -> (0, 3)) match the per-flow arm exactly.
+
+Beyond the per-window diagram/distance primitives, this module covers the
+full windowed pipeline:
+- the coupled ordered/shuffle-control run (`run_windowed` and helpers),
+  which drives one campaign run for a given W and writes its per-run CSV;
+- the campaign driver that sweeps `config.WINDOW_SIZES` across ordered
+  repeats and seeded shuffle controls;
+- the report tables (`build_detection_table`, `build_windowed_attribution_
+  table`, `build_contamination_table`, `build_frontier_table`, and the
+  `build_windowed_tables` aggregator) that reduce campaign CSVs under
+  `results/tables/rebuild/windowed/` into the four published tables;
+- the pgfplots/LaTeX snippet emitter for the manuscript frontier figure;
+- and `_render_windowed_report`, which renders `paper/WINDOWED_RESULTS.md`
+  from those tables plus the determinism/blackhole/pure-block-gate/
+  shuffle-oracle diagnostic summaries.
 """
 
 from __future__ import annotations
@@ -795,7 +810,7 @@ def _time_per_flow_probe(seed: int = 42, per_class: int = 4) -> float:
 
 
 def build_frontier_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0,
-                          binary_auc_csv=None, time_probe_fn=None):
+                          binary_auc_csv=None, time_probe_fn=None, detection_df=None):
     """Matched-compute frontier: znorm all_three AUC vs marginal per-decision seconds.
 
     One row per W present among the loaded ORDERED-arm runs (the shuffle
@@ -818,6 +833,10 @@ def build_frontier_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0,
     `_time_per_flow_probe`, a REAL timed probe sample -- injectable so
     tests never invoke it); `baseline_s` is NaN (the per-flow arm has no
     equivalent fixed setup cost).
+
+    `detection_df` lets a caller that already built the detection table
+    (e.g. `build_windowed_tables`) pass it through instead of triggering a
+    second bootstrap over the same runs; default (None) computes it here.
     """
     import numpy as np
     import pandas as pd
@@ -827,7 +846,10 @@ def build_frontier_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0,
     if time_probe_fn is None:
         time_probe_fn = _time_per_flow_probe
 
-    detection = build_detection_table(ws, B=B, bootstrap_seed=bootstrap_seed)
+    detection = (
+        detection_df if detection_df is not None
+        else build_detection_table(ws, B=B, bootstrap_seed=bootstrap_seed)
+    )
     ordered_znorm = detection[
         (detection["arm"] == "ordered")
         & (detection["subset"] == "all_three")
@@ -879,11 +901,13 @@ def build_windowed_tables(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0)
     Returns ``{"detection", "attribution", "contamination", "frontier"}``,
     one `pd.DataFrame` each (see the individual `build_*` docstrings).
     """
+    detection = build_detection_table(ws, B=B, bootstrap_seed=bootstrap_seed)
     return {
-        "detection": build_detection_table(ws, B=B, bootstrap_seed=bootstrap_seed),
+        "detection": detection,
         "attribution": build_windowed_attribution_table(ws, B=B, bootstrap_seed=bootstrap_seed),
         "contamination": build_contamination_table(ws),
-        "frontier": build_frontier_table(ws, B=B, bootstrap_seed=bootstrap_seed),
+        "frontier": build_frontier_table(ws, B=B, bootstrap_seed=bootstrap_seed,
+                                          detection_df=detection),
     }
 
 
@@ -1130,7 +1154,7 @@ def _fmt_ci(mean, std, ci_lo, ci_hi) -> str:
     return f"{mean:.4f} ± {std:.4f}  [{ci_lo:.4f}, {ci_hi:.4f}]"
 
 
-def _render_windowed_report(ws: Workspace, tables: dict, determinism: dict,
+def _render_windowed_report(tables: dict, determinism: dict,
                              blackhole: dict, pure_block_gate: dict,
                              shuffle_oracle: dict) -> str:
     import numpy as np
@@ -1583,7 +1607,7 @@ def write_windowed_report(ws: Workspace, tables: dict) -> dict:
     blackhole = windowed_blackhole_summary(ws)
     pure_block_gate = windowed_pure_block_gate_auc(ws)
     shuffle_oracle = windowed_shuffle_oracle_summary(ws)
-    report_text = _render_windowed_report(ws, tables, determinism, blackhole,
+    report_text = _render_windowed_report(tables, determinism, blackhole,
                                            pure_block_gate, shuffle_oracle)
 
     paper_dir = ws.root / "paper"

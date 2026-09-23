@@ -23,11 +23,15 @@ updated to match — both are correct for what they each reproduce.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from . import config
 from .features import diagram_dim_slice, load_diagrams_pkl
 from .tda import load_labels_for_split, load_split_manifold
 from .workspace import Workspace
+
+if TYPE_CHECKING:
+    import pandas
 
 log = logging.getLogger("uav_tda.unsupervised")
 
