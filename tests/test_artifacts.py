@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from uav_tda import artifacts
+from uav_tda.provenance import run_git
 
 # ---------------------------------------------------------------------------
 # Step 1: like-for-like full-path compute frontier
@@ -45,7 +46,7 @@ def test_full_path_frontier_synthetic_exact_values(tmp_path):
     assert list(df.columns) == [
         "row", "w", "auc_mean", "auc_ci_lo", "auc_ci_hi", "cost_s", "cost_p95_s",
         "campaign_marginal_s", "w2_only_per_flow_s", "baseline_setup_s",
-        "flows_per_decision", "cost_per_flow_s", "speedup_vs_per_flow",
+        "flows_per_decision", "cost_per_flow_s", "speedup_vs_per_flow", "cost_n",
     ]
     assert list(df["row"]) == ["per_flow", "25"]
     pf, w25 = df.iloc[0], df.iloc[1]
@@ -59,6 +60,7 @@ def test_full_path_frontier_synthetic_exact_values(tmp_path):
     assert pf["flows_per_decision"] == 1
     assert pf["cost_per_flow_s"] == 4.0
     assert pf["speedup_vs_per_flow"] == 1.0
+    assert pf["cost_n"] == 30
 
     assert w25["w"] == 25
     assert w25["auc_mean"] == 0.87 and w25["auc_ci_lo"] == 0.86 and w25["auc_ci_hi"] == 0.88
@@ -114,8 +116,17 @@ def test_emit_full_path_frontier_pgfplots_golden_string():
         r"\node[font=\small, anchor=south] at (axis cs:0.00749,0.877) {W=25};"
     )
     got = artifacts.emit_full_path_frontier_pgfplots(
-        df, source="windowed/compute_frontier.csv + latency_host.csv")
+        df, source="windowed/compute_frontier.csv + latency_host.csv", n=30)
     assert got == expected
+
+
+def test_emit_full_path_frontier_pgfplots_derives_n_from_frame():
+    df = pd.DataFrame([
+        {"row": "per_flow", "w": float("nan"), "auc_mean": 0.893, "auc_ci_lo": 0.885,
+         "auc_ci_hi": 0.900, "cost_s": 3.58, "cost_n": 17},
+    ])
+    first = artifacts.emit_full_path_frontier_pgfplots(df).splitlines()[0]
+    assert first.endswith("(latency harness, n=17)")
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +235,15 @@ def test_backfill_targets_match_brief():
     }
 
 
+def _is_shallow_clone() -> bool:
+    try:
+        return run_git(["rev-parse", "--is-shallow-repository"]) == "true"
+    except Exception:
+        return True
+
+
+@pytest.mark.skipif(_is_shallow_clone(),
+                    reason="shallow clone (or git unreachable): --diff-filter=A history unavailable")
 def test_default_introduced_in_resolves_committed_sha():
     sha = artifacts.git_introduced_in("results/tables/rebuild/exact/manifest.json")
     assert sha == "61131b8f83b85c6a505a303ff3abc3673f4c7bd7"

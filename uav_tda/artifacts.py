@@ -10,7 +10,7 @@ Task 3); the only writers here are the provenance helpers
 Frontier ruling (Phase-8 global constraints): the per-flow AUC is the
 Phase-4 10-seed probe value carried in ``windowed/compute_frontier.csv``;
 every row's COST is the latency harness's full-path ``total_s`` mean
-(single instrument, n=30). The campaign's own windowed marginal and the
+(single instrument, n=30 in the committed run). The campaign's own windowed marginal and the
 old W2-only per-flow 0.0602 s are kept as labelled secondary columns,
 never as the cost.
 """
@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import logging
 import shutil
-import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -30,7 +29,7 @@ from .exact import assemble_distances
 from .manuscript import _ATTRIBUTION_COLUMNS, _ATTRIBUTION_ROW_ORDER, _BINARY_SUBSET_ORDER, _NODE_Y_OFFSET
 from .metrics import ATTACK_CLASSES, MANIFOLD_SUBSETS, NORMAL
 from .paths import OUTPUTS_DIR, REPO_ROOT, TABLES_DIR
-from .provenance import write_provenance
+from .provenance import run_git, write_provenance
 
 _log = logging.getLogger("uav_tda.artifacts")
 
@@ -90,7 +89,8 @@ def build_full_path_frontier(rebuild_dir=None) -> pd.DataFrame:
     ``cost_s``/``cost_p95_s`` are the latency summary's ``total_s``
     mean/p95 for that mode/W. ``campaign_marginal_s`` (windowed only) and
     ``w2_only_per_flow_s`` (per-flow only) are the frontier CSV's
-    ``marginal_s`` kept as labelled secondary columns.
+    ``marginal_s`` kept as labelled secondary columns. ``cost_n`` is the
+    latency summary's sample count ``n`` for that row's ``total_s``.
     """
     rebuild = _rebuild(rebuild_dir)
     frontier = pd.read_csv(rebuild / "windowed" / "compute_frontier.csv",
@@ -124,16 +124,19 @@ def build_full_path_frontier(rebuild_dir=None) -> pd.DataFrame:
             ),
             "flows_per_decision": flows,
             "cost_per_flow_s": float(total["mean_s"]) / flows,
+            "_cost_n": int(total["n"]),
         })
     df = pd.DataFrame(rows)
     df["speedup_vs_per_flow"] = df["cost_s"].iloc[0] / df["cost_s"]
+    df["cost_n"] = df.pop("_cost_n")
     return df
 
 
 DEFAULT_FRONTIER_SOURCE = "windowed/compute_frontier.csv + latency_<host>.csv"
 
 
-def emit_full_path_frontier_pgfplots(df: pd.DataFrame, source: str = DEFAULT_FRONTIER_SOURCE) -> str:
+def emit_full_path_frontier_pgfplots(df: pd.DataFrame, source: str = DEFAULT_FRONTIER_SOURCE,
+                                     n=None) -> str:
     """Render `build_full_path_frontier` as a pgfplots ``\\addplot`` block.
 
     Same shape as `windowed.emit_frontier_pgfplots` (per_flow first, then W
@@ -141,13 +144,16 @@ def emit_full_path_frontier_pgfplots(df: pd.DataFrame, source: str = DEFAULT_FRO
     x = ``cost_s`` and asymmetric bootstrap-CI error bars in pgfplots
     ``explicit`` syntax: ``(x, y) += (0, ci_hi-y) -= (0, y-ci_lo)``. Labels
     sit at the top of the CI bar (y = ``auc_ci_hi``). A leading ``%``
-    comment names the source CSVs and the x-axis meaning.
+    comment names the source CSVs, the x-axis meaning, and the harness
+    sample count ``n`` (default: the per-flow row's ``cost_n`` column).
     """
     per_flow = df[df["row"] == _PER_FLOW_ROW]
     windowed = df[df["row"] != _PER_FLOW_ROW].sort_values("w")
     ordered = pd.concat([per_flow, windowed], ignore_index=True)
 
-    lines = [f"% source: {source}; x = full-path seconds per decision (latency harness, n=30)",
+    if n is None:
+        n = int(per_flow["cost_n"].iloc[0])
+    lines = [f"% source: {source}; x = full-path seconds per decision (latency harness, n={n})",
              r"\addplot coordinates {"]
     for _, r in ordered.iterrows():
         lines.append(
@@ -298,25 +304,19 @@ BACKFILL_TARGETS = (
 )
 
 
-# Under Rosetta (x86_64 Python on Apple silicon) the /usr/bin/git xcrun shim
-# can fail to load an arm64-only libxcrun; fall back to the Command Line
-# Tools git binary directly.
-_GIT_CANDIDATES = ("git", "/Library/Developer/CommandLineTools/usr/bin/git")
-
-
 def git_introduced_in(repo_rel_path: str) -> str:
-    """SHA of the commit that added ``repo_rel_path`` (``"unknown"`` if none)."""
-    for git in _GIT_CANDIDATES:
-        try:
-            out = subprocess.check_output(
-                [git, "log", "--diff-filter=A", "--format=%H", "--", repo_rel_path],
-                cwd=REPO_ROOT, stderr=subprocess.DEVNULL,
-            ).decode().split()
-        except Exception:
-            continue
-        # git log is newest-first; the original addition is the oldest entry.
-        return out[-1] if out else "unknown"
-    return "unknown"
+    """SHA of the commit that added ``repo_rel_path`` (``"unknown"`` if none).
+
+    Uses the shared Rosetta-safe `provenance.run_git`. On a shallow clone
+    the answer is the graft commit, not the true introducing commit.
+    """
+    try:
+        out = run_git(["log", "--diff-filter=A", "--format=%H", "--", repo_rel_path],
+                      cwd=REPO_ROOT).split()
+    except Exception:
+        return "unknown"
+    # git log is newest-first; the original addition is the oldest entry.
+    return out[-1] if out else "unknown"
 
 
 def backfill_sidecars(rebuild_dir=None, introduced_in_fn=None) -> list:

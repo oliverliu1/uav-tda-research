@@ -10,12 +10,33 @@ from pathlib import Path
 from . import __version__
 
 
+# Under Rosetta (x86_64 Python on Apple silicon) the /usr/bin/git xcrun shim
+# can fail to load an arm64-only libxcrun; fall back to the Command Line
+# Tools git binary directly.
+_GIT_CANDIDATES = ("git", "/Library/Developer/CommandLineTools/usr/bin/git")
+
+
+def run_git(args, cwd=None) -> str:
+    """Run ``git *args`` via the first working candidate binary; return stripped stdout.
+
+    ``cwd`` defaults to this package's directory. Raises the last error if
+    every candidate fails.
+    """
+    cwd = Path(__file__).parent if cwd is None else cwd
+    last_exc: Exception = RuntimeError("no git candidate")
+    for git in _GIT_CANDIDATES:
+        try:
+            return subprocess.check_output(
+                [git, *args], cwd=cwd, stderr=subprocess.DEVNULL,
+            ).decode().strip()
+        except Exception as exc:
+            last_exc = exc
+    raise last_exc
+
+
 def _git_sha() -> str:
     try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).parent,
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
+        return run_git(["rev-parse", "HEAD"])
     except Exception:
         return "unknown"
 
