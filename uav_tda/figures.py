@@ -13,6 +13,7 @@ reruns are byte-stable.
 from __future__ import annotations
 
 import contextlib
+import math
 from pathlib import Path
 
 import matplotlib
@@ -68,6 +69,7 @@ STAGES = (("scaler_s", "scaler", "#E0E0E0"), ("rips_s", "Rips", "#7F7F7F"),
 EXACT_REF_LABEL = "per-flow, full test (δ≤0.01)"
 
 _MANIFOLDS = ("c2", "network", "physical")
+_OUTLINE_INSET = 0.07
 _PDF_METADATA = {"CreationDate": None}
 
 _RC = {
@@ -102,9 +104,11 @@ def _save(fig, out_path, params: dict) -> Path:
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     # rcParams are read at save time too (pdf.fonttype), so re-enter the style.
-    with _style():
-        fig.savefig(out, format="pdf", metadata=_PDF_METADATA)
-    plt.close(fig)
+    try:
+        with _style():
+            fig.savefig(out, format="pdf", metadata=_PDF_METADATA)
+    finally:
+        plt.close(fig)
     write_provenance(out, params)
     return out
 
@@ -282,12 +286,25 @@ def fig_latency(latency: pd.DataFrame, out_path, source: str = "latency_<host>.c
                                        constrained_layout=True)
         ys = np.arange(len(_MANIFOLDS))[::-1]
         left = np.zeros(len(_MANIFOLDS))
-        for k, (_, label, color) in enumerate(STAGES):
-            vals = np.array([stage_means[m][k] for m in _MANIFOLDS])
+        stage_keys = [s for s, _, _ in STAGES]
+        # scaler and slice are ~1 ms (sub-pixel next to Rips): one merged segment
+        # whose legend entry states its magnitude.
+        tiny = np.array([stage_means[m][stage_keys.index("scaler_s")]
+                         + stage_means[m][stage_keys.index("slice_s")] for m in _MANIFOLDS])
+        # Round the bound UP to 0.1 ms so "≤" is never understated.
+        tiny_ms = math.ceil(round(1000 * tiny.max() * 10, 6)) / 10
+        segments = [(f"scaler + slice (≤{tiny_ms:.1f} ms)", "#E0E0E0", tiny)]
+        for key in ("rips_s", "w2_s"):
+            k = stage_keys.index(key)
+            segments.append((STAGES[k][1], STAGES[k][2],
+                             np.array([stage_means[m][k] for m in _MANIFOLDS])))
+        legend_labels = []
+        for label, color, vals in segments:
             ax1.barh(ys, vals, left=left, color=color, edgecolor="black", lw=0.3,
                      height=0.6, label=label)
+            legend_labels.append(label)
             left += vals
-        rips_k = [s for s, _, _ in STAGES].index("rips_s")
+        rips_k = stage_keys.index("rips_s")
         for y, tot, m in zip(ys, left, _MANIFOLDS):
             share = stage_means[m][rips_k] / tot
             ax1.text(tot + 0.02 * left.max(), y, f"{tot:.3g} s (Rips {100 * share:.0f}%)",
@@ -296,7 +313,7 @@ def fig_latency(latency: pd.DataFrame, out_path, source: str = "latency_<host>.c
         ax1.set_yticklabels([MANIFOLD_LABELS[m] for m in _MANIFOLDS])
         ax1.set_xlim(0, left.max() * 1.45)
         ax1.set_xlabel("Per-flow latency per stage (s, mean)")
-        ax1.legend(ncol=4, loc="lower center", bbox_to_anchor=(0.5, 1.0),
+        ax1.legend(ncol=3, loc="lower center", bbox_to_anchor=(0.5, 1.0),
                    handlelength=1.0, columnspacing=1.0)
 
         y2 = np.arange(len(ws))[::-1]
@@ -320,6 +337,7 @@ def fig_latency(latency: pd.DataFrame, out_path, source: str = "latency_<host>.c
         "per_flow_stage_means_s": {m: dict(zip([s for s, _, _ in STAGES], v))
                                    for m, v in stage_means.items()},
         "per_flow_total_s": pf_total,
+        "legend_labels": legend_labels,
         "windowed_total_s": {str(w): float(v) for w, v in zip(ws, win["mean_s"])},
     })
 
@@ -356,6 +374,11 @@ def fig_attribution(exact_per_attack: pd.DataFrame, windowed_attribution: pd.Dat
             for i, a in enumerate(rows):
                 grid[i, 3 * b + j] = float(idx.loc[(a, m), "value"])
                 dominant[i, 3 * b + j] = bool(idx.loc[(a, m), "dominant"])
+        for i, a in enumerate(rows):
+            n_dom = int(dominant[i, 3 * b:3 * b + 3].sum())
+            if n_dom != 1:
+                raise ValueError(f"attribution block {name!r}, {a!r}: expected exactly one "
+                                 f"dominant manifold, found {n_dom}")
 
     with _style():
         fig, ax = plt.subplots(figsize=(DOUBLE_COL_IN, 2.1), constrained_layout=True)
@@ -369,8 +392,10 @@ def fig_attribution(exact_per_attack: pd.DataFrame, windowed_attribution: pd.Dat
                         fontsize=BASE_FONT_PT - 1.5,
                         color="white" if abs(v - 0.5) > 0.3 else "black")
                 if dominant[i, j]:
-                    ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False,
-                                           ec="black", lw=1.4, zorder=3))
+                    # Inset so outlines of neighbouring cells never share an edge.
+                    ax.add_patch(Rectangle((j - 0.5 + _OUTLINE_INSET, i - 0.5 + _OUTLINE_INSET),
+                                           1 - 2 * _OUTLINE_INSET, 1 - 2 * _OUTLINE_INSET,
+                                           fill=False, ec="black", lw=1.2, zorder=3))
         for b in range(1, len(blocks)):
             ax.axvline(3 * b - 0.5, color="white", lw=3)
         ax.set_xticks(range(ncol))
@@ -421,7 +446,10 @@ def fig_roc(val: pd.DataFrame, test: pd.DataFrame, operating_points: pd.DataFram
 
     aucs, legend = {}, {}
     with _style():
-        fig, ax = plt.subplots(figsize=(SINGLE_COL_IN, 3.0), constrained_layout=True)
+        fig, (ax, ax_leg) = plt.subplots(2, 1, figsize=(SINGLE_COL_IN, 3.7),
+                                         gridspec_kw={"height_ratios": [3.0, 0.62]},
+                                         constrained_layout=True)
+        ax_leg.axis("off")
         ax.plot([0, 1], [0, 1], color="#BBBBBB", lw=0.6, ls="-")
         for subset in reversed(list(SUBSET_STYLE)):
             label, color, ls = SUBSET_STYLE[subset]
@@ -433,13 +461,13 @@ def fig_roc(val: pd.DataFrame, test: pd.DataFrame, operating_points: pd.DataFram
             ax.plot(fpr, tpr, color=color, ls=ls,
                     lw=1.3 if subset == "all_three" else 0.9, label=legend[subset])
         ax.plot([op_fpr], [op_tpr], "o", mfc="white", mec="black", mew=1.0, ms=5, zorder=5,
-                label=f"val-Normal Q95 (FPR {op_fpr:.3f}, TPR {op_tpr:.3f})")
+                label=f"val-Normal Q95\n(FPR {op_fpr:.3f}, TPR {op_tpr:.3f})")
         handles, labels = ax.get_legend_handles_labels()
         order = [labels.index(legend[s]) for s in SUBSET_STYLE] + [len(labels) - 1]
-        leg = ax.legend([handles[i] for i in order], [labels[i] for i in order],
-                        loc="lower right", frameon=True, fancybox=False, framealpha=0.92,
-                        edgecolor="#BBBBBB", borderpad=0.4, handlelength=1.8)
-        leg.get_frame().set_linewidth(0.4)
+        # Legend lives in its own axes below the plot so it covers no curve.
+        ax_leg.legend([handles[i] for i in order], [labels[i] for i in order],
+                      loc="center", ncol=2, handlelength=1.8, columnspacing=1.2,
+                      borderaxespad=0.0)
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1.0)
         ax.set_aspect("equal")
@@ -447,7 +475,7 @@ def fig_roc(val: pd.DataFrame, test: pd.DataFrame, operating_points: pd.DataFram
         ax.set_ylabel("True-positive rate")
     return _save(fig, out_path, {
         "figure": "roc", "source": source, "scoring": "znorm",
-        "auc": aucs, "legend": legend,
+        "auc": aucs, "legend": legend, "legend_placement": "below axes",
         "operating_point": {"fpr": op_fpr, "tpr": op_tpr},
         "operating_point_source": "artifacts.operating_point_table (all_three, znorm)",
         "n_test": int(len(scored)),

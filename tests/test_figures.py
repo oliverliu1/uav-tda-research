@@ -278,3 +278,58 @@ def test_build_all_figures_on_committed_rebuild(tmp_path):
         _assert_pdf(p, width)
     assert _sidecar(paths["frontier"])["params"]["exact_ref_auc"] == pytest.approx(
         0.908231183138054)
+
+
+# ---------------------------------------------------------------------------
+# Fix round 1
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("which", ["two", "zero"])
+def test_fig_attribution_requires_exactly_one_dominant_per_block(tmp_path, which):
+    exact = _exact_per_attack_df()
+    rows = exact.index[exact["attack_class"] == ATTACK_CLASSES[0]]
+    if which == "two":
+        exact.loc[rows, "dominant"] = [True, True, False]
+    else:
+        exact.loc[rows, "dominant"] = False
+    with pytest.raises(ValueError, match="exactly one dominant"):
+        figures.fig_attribution(exact, _windowed_attribution_df(), tmp_path / "attr.pdf")
+
+
+def test_fig_roc_legend_is_outside_axes(tmp_path):
+    val, test, op = _roc_frames()
+    out = figures.fig_roc(val, test, op, tmp_path / "roc.pdf")
+    assert _sidecar(out)["params"]["legend_placement"] == "below axes"
+
+
+def test_fig_latency_legend_names_tiny_stages_with_magnitude(tmp_path):
+    out = figures.fig_latency(_latency_df(), tmp_path / "lat.pdf")
+    labels = _sidecar(out)["params"]["legend_labels"]
+    assert "scaler" not in labels and "slice" not in labels
+    merged = [lab for lab in labels if lab.startswith("scaler + slice")]
+    # synthetic: scaler 1 ms + slice 0.2 ms per manifold
+    assert merged == ["scaler + slice (≤1.2 ms)"]
+
+
+def test_fig_latency_tiny_stage_bound_rounds_up(tmp_path):
+    lat = _latency_df()
+    lat.loc[lat["stage"].str.endswith("_scaler_s"), "mean_s"] = 0.00084  # 0.84+0.2 = 1.04 ms
+    out = figures.fig_latency(lat, tmp_path / "lat.pdf")
+    labels = _sidecar(out)["params"]["legend_labels"]
+    assert "scaler + slice (≤1.1 ms)" in labels
+
+
+def test_save_closes_figure_when_savefig_fails(tmp_path, monkeypatch):
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure()
+    num = fig.number
+
+    def boom(*a, **k):
+        raise RuntimeError("savefig failed")
+
+    monkeypatch.setattr(fig, "savefig", boom)
+    with pytest.raises(RuntimeError):
+        figures._save(fig, tmp_path / "x.pdf", {})
+    assert not plt.fignum_exists(num)
