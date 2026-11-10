@@ -26,7 +26,7 @@ No new runtime dependencies (e.g. POT) without an explicit decision.
 ## Commands
 
 ```bash
-make test        # fast suite (pytest -m "not slow"), ~2 min, 145 tests — run before claiming anything works
+make test        # fast suite (pytest -m "not slow"), ~2 min, 162 tests — run before claiming anything works
 make test-all    # includes slow monolith-equivalence tests (needs .cache/monolith-debug/)
 make lint        # ruff, safety tier
 uav-tda --help   # 16 subcommands; README "Quickstart" + "Results docs" list which command regenerates which paper/*.md
