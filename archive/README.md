@@ -8,7 +8,7 @@ not cite any number that came from it.
 For the maintained implementation, use `uav_tda/` (the package) and its CLI
 (`uav-tda ...`). For the frozen equivalence oracle / historical production
 run, see `pipeline.py` at the repo root (also read-only, but authoritative —
-see `CLAUDE/CLAUDE.md`).
+see `CLAUDE.md`).
 
 ## Contents
 

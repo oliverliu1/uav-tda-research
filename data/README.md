@@ -35,3 +35,18 @@ dataset. Any "time-windowed" analysis (see `uav_tda/windowed.py`,
 `docs/superpowers/specs/2026-09-21-windowed-variant-design.md` §1) therefore
 uses **FlowID order** as a stand-in for real time; this is a disclosed
 manuscript caveat, not an assumption hidden in the code.
+
+**Other dataset quirks** (verified in the May 2026 EDA; carried over from the
+retired `CLAUDE/RESEARCH_CONTEXT.md`):
+
+- `Protocol` is all-UDP (zero variance) and is dropped as a feature.
+- Normal-Traffic rows are **interleaved** with attack rows throughout the file,
+  not contiguous. Any baseline or reference-cloud construction must filter by
+  label, never by row position. (Blackhole interleaves with Normal at run-length
+  ~1; the other attacks form long contiguous blocks — see
+  `paper/WINDOWED_RESULTS.md`.)
+- IP addresses follow `192.168.0.X`; only the last octet varies (1–255), which is
+  why the C2 manifold uses last-octet integer encoding.
+- Only two port values exist: 9 (Discard) and 654 (AODV routing), encoded one-hot.
+- Class counts: Normal 26,172; Blackhole 26,110; Wormhole 26,086; Sybil 24,077;
+  Flooding 19,726.

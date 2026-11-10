@@ -8,7 +8,9 @@ on:
 
 jobs:
   fast-suite:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to Ubuntu 26.04 on 2026-10-19, which has no
+    # Python 3.9 build for actions/setup-python (the pinned research env is 3.9).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
