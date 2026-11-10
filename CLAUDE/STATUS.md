@@ -58,9 +58,10 @@ attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attributio
   report): Flooding W=50 C2 0.6757 vs Network 0.6293; Wormhole W=50 Network 0.8140 vs Physical
   0.8096; Flooding W=100 C2 0.7102 vs Network 0.6775; Flooding W=200 Network 0.7467 vs C2 0.6965.
   Do not read these dominances as resolved.
-- Also in the report: windowed cost excludes scaler/slice + baseline setup (W=25 speedup is
-  upper-end); per-flow vs windowed AUC units differ (M2); contamination uses an empirical
-  near-normal threshold, not val-Normal Q95.
+- Also in the report: windowed cost is Rips + W2 (slicing inside W2) with no scaler stage
+  (pre-scaled inputs; per-flow scaler ~2.51 ms) and no baseline setup, so the W=25 speedup is
+  upper-end; per-flow vs windowed AUC units differ (M2); contamination uses an empirical Q95
+  over attack_frac <= 0.05 windows (43/16/9/5 unique at W=25/50/100/200), not val-Normal Q95.
 - Per-flow attribution block is a single full-test estimate; windowed blocks are 10-run means.
 - Thinnest contamination bin is n=1 (W=100, bin 0); low power.
 

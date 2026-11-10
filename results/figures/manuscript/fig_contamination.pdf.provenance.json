@@ -1,8 +1,8 @@
 {
   "artifact": "fig_contamination.pdf",
   "artifact_sha256": "978bd43cbc0136023b0f94de7ae02ac9b84ca4e945e3e65004cd415411070b05",
-  "created_utc": "2026-11-10T05:21:11.486705+00:00",
-  "git_sha": "d9fa20f05946d438f54cdd78390f25f3082b6d28",
+  "created_utc": "2026-11-10T05:31:26.368067+00:00",
+  "git_sha": "570e09330fbeafd9d631632fc9030e1e69ee518b",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",
