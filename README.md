@@ -11,7 +11,7 @@ decisions, and abandoned approaches.
 The `uav_tda/` package is the maintained implementation. `pipeline.py` is
 retained, unmodified, as the frozen equivalence oracle every `uav_tda` phase
 is tested against (and as the historical record of the paper's production
-run) — see `CLAUDE/CLAUDE.md` for details. Do not modify either.
+run) — see `CLAUDE.md` for details. Do not modify either.
 
 ## Install
 
@@ -35,7 +35,7 @@ immutable as-submitted record and are never overwritten by reruns.
 Full pipeline phases (`prep`, `tda`, `features`, `supervised`, `unsupervised`,
 `evaluate`, or `all` in order) and analysis commands (`windowed`,
 `windowed-report`, `exact`, `exact-report`, `latency`, `znorm-report`,
-`manuscript-report`) are documented in `CLAUDE/CLAUDE.md`. Run
+`manuscript-report`) are documented in `CLAUDE.md`. Run
 `uav-tda <command> --help` for any subcommand's flags.
 
 ## Dataset
@@ -53,7 +53,7 @@ redistributing it in this repository is an author decision.
 
 `paper/` also holds three historical provenance docs, kept as the
 as-published record rather than regenerated: `PROBE_RESULTS.md` (the
-published probe record `CLAUDE/CLAUDE.md`'s number-provenance rule points
+published probe record the root `CLAUDE.md`'s number-provenance rule points
 at), `MULTI_SEED_VARIANCE.md`, and `C2_NORMALIZATION_DIAGNOSTIC.md`.
 
 Alongside those, five machine-generated reports under `paper/`, each built

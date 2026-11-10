@@ -1,350 +1,222 @@
 # Project Brief — Multi-Manifold Topological Analysis of UAV Network Attacks
 
-**Last updated:** 2026-05-23
-**Author:** Oliver Liu, advised by Dr. Sun
-**Target venue:** AIAA SciTech 2027, Intelligent Systems track
-**Status:** Reframed paper; drafting begins after two confirmation diagnostics complete.
+**Last updated:** 2026-10-18 (body regenerated; decision log at the bottom is append-only and verbatim since 2026-05-23)
+**Authors:** Oliver Liu (Baylor CS alum; Capital One), advised by Dr. Liang Sun and Dr. Natnael Negash (Baylor ME / AVIA Lab)
+**Target venue:** AIAA SciTech 2027, Intelligent Systems track. Extended abstract **submitted** (source: `CLAUDE/SciTech2027_IntelligentSystems_Liu/main.tex`, unchanged since submission). Full manuscript due **December 2026**.
+**Status:** Infrastructure program complete (Phases 1–7, PRs #11–#17, 2026-09-19 → 09-23). Results package complete and machine-generated, **all numbers pending author sign-off**. Remaining work is manuscript-side. See `CLAUDE/STATUS.md` for the current readiness audit and open items.
 
 ---
 
 ## 0. How to use this document
 
-Read sections 1–4 before doing anything else. Sections 5–8 are reference material.
-Section 9 lists the only files anyone should be touching right now. Section 10 is
-the next-48-hour action list with explicit blockers.
+Sections 1–4 are the framing: read them before touching any claim. Section 5 is the methodology
+snapshot. Sections 6–8 record what is settled, what was abandoned, and what is genuinely open.
+Section 9 is writing guidance. The decision log at the end is the authoritative record of every
+framing, numbers, or discipline change; **append, never edit**.
 
-If you are an LLM picking this up: do not relitigate decisions in this document.
-The pivot below is settled. Your job is to help execute it.
-
----
-
-## 1. The one-paragraph story
-
-We applied multi-manifold persistent homology to UAV intrusion detection on the UAVIDS-2025 benchmark. The original framing — "TDA improves classification accuracy" — is dead: raw Random Forest baseline already hits 96.3% accuracy and TDA features do not improve on it. The project pivoted to three surviving findings. First, a label-free anomaly detector built on per-flow Vietoris-Rips persistence diagrams compared via Wasserstein-2 distance to a reference-cloud baseline barcode achieves binary AUC of 0.86 ± 0.00 on the Network+Physical manifold subset across three seeds, without exposure to any attack labels at calibration. Second, attack-specific manifold attribution reproduces across three seeds: Sybil and Flooding manifest on the Network manifold (mean AUCs 0.87 and 0.79), while Blackhole and Wormhole manifest on the Physical manifold (mean AUCs 0.79 and 0.74). Third, three of four attack-class attributions agree with the feature-level predictions in Zeng et al. (2025); Sybil is the exception — Zeng predicted Sybil would manifest on source-addressing features (C2 manifold), but our topology finds Sybil's strongest signature on the Network manifold. We discuss what this single divergence may reveal about TDA-based versus feature-inspection-based analysis.
+If you are an LLM picking this up: do not relitigate decisions recorded here. Raise disagreements
+explicitly and log them. File discipline (frozen paths, write zones, ops rules) lives in the root
+`CLAUDE.md`.
 
 ---
 
-## 2. Research goals and questions
+## 1. The story
 
-### Primary question
-What do topological invariants of multi-manifold network-flow representations
-reveal about cyber attacks on UAV swarms, and which functional subsystem
+### 1.1 As submitted (extended abstract, 3-seed raw-sum probe)
+
+We applied multi-manifold persistent homology to UAV intrusion detection on UAVIDS-2025. The
+original framing — "TDA improves classification accuracy" — is dead: raw Random Forest already
+hits 96.3% and TDA features do not improve on it. Three surviving findings: (1) a label-free
+anomaly detector built on per-flow Vietoris–Rips persistence diagrams compared via Wasserstein-2
+distance to a reference-cloud baseline barcode achieves binary AUC 0.86 ± 0.00 on the
+Network+Physical subset across three seeds, with no attack labels at calibration; (2) per-attack
+manifold attribution reproduces across seeds: Sybil and Flooding → Network (0.87, 0.79), Blackhole
+and Wormhole → Physical (0.79, 0.74); (3) three of four attributions agree with Zeng et al. (2025);
+Sybil is the single divergence (Zeng predicted C2/source-addressing; topology finds Network).
+
+### 1.2 Since submission (all pending sign-off; every number traces to `results/tables/rebuild/`)
+
+| Result | Value | Source doc | Status |
+|---|---|---|---|
+| Per-flow, val-Normal z-normalized SUM, 10 seeds, probe (K=50, δ=0.2, 200/class) | all-three AUC **0.8930 ± 0.0078** [0.885, 0.900]; N+P 0.8692 ± 0.0122 | `paper/MANUSCRIPT_STATS.md` | pending sign-off |
+| Per-flow, znorm, **full test split** (18,326 test + 3,926 val-Normal), hera δ≤0.01, no sampling/truncation | all-three AUC **0.9082** [0.9033, 0.9131]; raw 0.9037 | `paper/EXACT_RESULTS.md` | pending sign-off; this is the definitive per-flow number |
+| Per-attack attribution at full-test scale | Sybil→Network 0.888, Flooding→Network 0.787, Blackhole→Physical 0.792, Wormhole→Physical 0.728 | `paper/EXACT_RESULTS.md` | replicates 3-seed and 10-seed exactly |
+| Time-windowed variant (FlowID-order windows, W∈{25,50,100,200}, 80 runs) | best **W=100: 0.9376 ± 0.0005** [0.926, 0.948]; ordered ≥0.869 at every W; shuffle control 0.57 (Δ +0.32–0.37) | `paper/WINDOWED_RESULTS.md` | pending sign-off; lead manuscript contribution |
+| Window-level attribution | Blackhole→Physical survives all W; **Sybil flips to C2 at all W**, Flooding→C2 at W≤100, Wormhole→Network at W≤50 then Physical at W≥100 | `paper/WINDOWED_RESULTS.md` | finding, not defect; must be reconciled with per-flow story |
+| Per-flow latency (full standardize→Rips→W2 path, n=30) | **3.576 s mean / 3.859 s p95**; C2 Rips ≈97% of cost | `paper/LATENCY_RESULTS.md` | contradicts abstract's "1–3 s"; Rosetta-emulated x86_64 on M1 Pro, workstation-class |
+| Windowed marginal cost | W=25: 0.0075 s/decision (+78 s one-time baseline) | `paper/LATENCY_RESULTS.md` | one decision covers W flows |
+| Seed-123 "C2 timeout artifact" (4.6% in abstract) | 0 timeouts at 30 s cap (vs 139 at 5 s) | `paper/ZNORM_RESULTS.md` | resolved: compute-budget artifact |
+| Literal exact Wasserstein (hera δ=0) | intractable: 13/13 sampled flows timed out at 120 s, ~30-day projection | `paper/EXACT_RESULTS.md` §1 | §V promise must be reworded |
+
+**Supervised context (unchanged):** raw 22 features + RF curated 96.3% accuracy (0.997 weighted
+AUC); combined raw+TDA 95.8%; TDA-only 81.0% (`results/tables/supervised_summary.csv`).
+
+---
+
+## 2. Research questions and contributions
+
+**Primary question.** What do topological invariants of multi-manifold network-flow
+representations reveal about cyber attacks on UAV swarms, and which functional subsystem
 manifests each attack class most strongly?
 
-### Three research questions (in priority order for the paper)
-- **RQ1.** Do distinct attack classes in UAVIDS-2025 produce topologically
-  distinguishable signatures on a per-manifold basis, and if so, which manifold
-  is dominant for each attack class?
-- **RQ2.** Can label-free anomaly detection — calibrated using only normal-traffic
-  samples — match supervised classifiers' ranking quality (AUC) on this benchmark,
-  particularly under operational constraints that exclude one or more manifolds?
-- **RQ3.** Do the empirically observed per-manifold attack signatures align with
-  the feature-level attack-signature predictions in Zeng et al. (2025), and where
-  they diverge, what does that divergence indicate?
+- **RQ1.** Do distinct attack classes produce topologically distinguishable per-manifold
+  signatures, and which manifold is dominant for each?
+- **RQ2.** Can label-free detection calibrated on Normal traffic alone achieve usable binary AUC?
+- **RQ3.** Do the empirical attributions align with Zeng et al.'s feature-level predictions, and
+  what does the divergence indicate?
+- **Manuscript addition (Phase 5).** How do per-flow and time-windowed variants trade detection
+  AUC, attribution resolution, and per-decision compute?
 
-### What is NOT a research question
-- Whether TDA improves supervised accuracy on UAVIDS-2025. It does not. This
-  question is settled and is not in the paper.
+**Not a research question:** whether TDA improves supervised accuracy. It does not. Settled.
 
----
-
-## 3. Contributions claimed in the paper (exactly three)
-
-1. **A three-manifold decomposition of UAV network traffic** aligned with the functional categorization defined by the UAVIDS-2025 dataset creators (Zeng et al., 2025, Table III). C2 (Connection) = 7 features after one-hot port encoding; Network (Traffic Volume) = 10 features; Physical (Performance) = 5 features. The three manifolds are pairwise disjoint.
-
-2. **A label-free multi-manifold anomaly detector** based on per-flow Vietoris-Rips persistence diagrams compared via Wasserstein-2 distance to a reference-cloud baseline barcode, achieving a binary normal-vs-attack AUC of 0.86 ± 0.00 (three-seed mean) on the Network+Physical manifold subset of UAVIDS-2025. The detector uses only normal-traffic samples for threshold calibration; it never sees attack labels.
-
-3. **An empirical characterization of per-attack manifold attribution**, reproducible across three seeds: Sybil and Flooding attacks manifest on the Network manifold (mean AUCs 0.87 and 0.79), while Blackhole and Wormhole attacks manifest on the Physical manifold (mean AUCs 0.79 and 0.74). Three of four attributions agree with feature-level predictions in Zeng et al. (2025). Sybil's empirical attribution to Network (rather than C2, where Zeng predicted source-addressing signatures would dominate) is a single divergence; we discuss what this may reveal about TDA-based versus feature-inspection-based analysis.
-
-The previously contemplated fourth contribution — the "C2 manifold paradox" — is retired. Diagnostic A (confirmation probe at top-K=50, delta=0.2) and Diagnostic B (per-manifold Z-score normalization) both indicate the original "C2 hurts combined AUC" finding was a probe approximation and scale-mismatch artifact, not a property of the data. The C2 paradox is not in the paper in any form.
+**Contributions (exactly three in the abstract; the manuscript adds the windowed comparison as
+the lead methodological contribution):** the three-manifold decomposition aligned with Zeng
+Table III (C2 7 / Network 10 / Physical 5, pairwise disjoint); the label-free multi-manifold
+Wasserstein detector; the per-attack manifold attribution and its agreement/divergence with Zeng.
+The "C2 manifold paradox" (C2 hurts the combined detector) was retired 2026-05-24 as a probe
+approximation and scale-mismatch artifact; under z-normalized scoring the all-three detector
+beats N+P (0.893 vs 0.869 at 10 seeds; 0.908 vs 0.874 at full test).
 
 ---
 
-## 4. What the paper claims and what it does not claim
+## 3. Claims and non-claims
 
-### Claims
-- Persistent homology applied to a functional decomposition of UAV network traffic reveals per-attack-class manifold attribution with three-seed mean AUCs of 0.74–0.87 at the dominant manifold for each attack.
-- A label-free detector restricted to Network and Physical manifolds achieves binary AUC of 0.86 ± 0.00 (three-seed mean) on UAVIDS-2025 without using attack labels at calibration.
-- The empirical attack-to-manifold attribution agrees with Zeng et al. (2025) on three of four attack classes (Blackhole, Wormhole, Flooding). Sybil is the exception: Zeng predicted Sybil's signature would manifest on source-addressing features (C2 manifold) while we observe Sybil's dominant signature on the Network manifold.
-- Per-flow inference latency, measured on a 2020-era laptop, is on the order of 1–3 seconds; we do not characterize onboard performance in this extended abstract.
+**Claims (manuscript-ready, pending sign-off):**
+- Per-attack manifold attribution with dominant-manifold AUCs 0.73–0.89, replicating across 3
+  seeds, 10 seeds, and the full test split.
+- Label-free detection AUC 0.908 (all three manifolds, z-normalized, full test) without attack
+  labels at any calibration stage; 0.874 when C2 is unavailable.
+- Time-windowed variant reaches 0.938 at W=100 and is orders of magnitude cheaper per decision;
+  FlowID-order temporal locality is load-bearing (shuffle control).
+- 3-of-4 agreement with Zeng et al.; Sybil is the single per-flow divergence. At window level the
+  Sybil signature moves to C2 (i.e. toward Zeng's prediction) — to be discussed, not hidden.
 
-### Explicit non-claims
-- We do not claim higher accuracy than supervised classifiers; raw Random Forest
-  outperforms every TDA configuration on this benchmark.
-- We do not claim demonstrated real-time UAV deployment; the latency footprint
-  is consistent with periodic security audits, not per-packet IDS.
-- We do not claim TDA features complement raw features for supervised
-  classification; they do not on this benchmark.
-- We do not claim our results generalize beyond UAVIDS-2025.
-
----
-
-## 5. Methodology snapshot (verified configuration from production run)
-
-- **Dataset:** UAVIDS-2025 (Zeng et al., 2025). 122,171 UDP flow records, 23
-  columns, five classes (Normal Traffic, Blackhole, Wormhole, Sybil, Flooding).
-- **Split:** stratified 70/15/15 train/val/test = 85,519 / 18,326 / 18,326.
-- **Manifold partition:** C2 = SrcAddr_last_octet + one-hot SrcPort + DstAddr_last_octet
-  + one-hot DstPort + FlowDuration/s (7 cols). Network = TxPackets, RxPackets,
-  LostPackets, TxBytes, RxBytes, four rate metrics, MeanPacketSize (10 cols).
-  Physical = MeanDelay/s, MeanJitter/s, Throughput/Kbps, PacketDropRate,
-  AverageHopCount (5 cols). All manifolds StandardScaler-normalized on train only.
-- **Reference cloud:** 500 k-medoids-sampled Normal-Traffic flows from the
-  training set. Same 500 row positions used across all three manifolds.
-- **Filtration:** per-flow Vietoris-Rips on {query_flow} ∪ {500 reference points}.
-  Max edge length = 25th percentile of reference-cloud pairwise distances per
-  manifold (C2 = 0.494, Network = 0.145, Physical = 0.333). Sparse Rips
-  epsilon = 0.5 for C2 and Network; exact Rips for Physical. Simplex tree max
-  dimension = 3 for C2 and Network (yielding H_0, H_1, H_2 with real death
-  times); = 2 for Physical (yielding H_0, H_1 only).
-- **Baseline barcode:** one Vietoris-Rips persistence diagram per manifold,
-  computed on the 500 reference points only.
-- **Anomaly score:** per-flow Wasserstein-2 distance from the flow's persistence
-  diagram to that manifold's baseline barcode, summed across homology
-  dimensions. Hera backend via GUDHI when available; falls back to GUDHI's
-  default Wasserstein implementation.
-- **Threshold:** 95th percentile of validation-set Normal-Traffic Wasserstein
-  distances, computed per-manifold. A flow is flagged if any manifold's score
-  exceeds its threshold.
-- **Probe approximation** (this paper, not journal): top-K most persistent bars
-  per (manifold, dim), Hera delta-approximation. Currently running at top-K=20,
-  delta=0.5 for tractability; a confirmation pass at top-K=50, delta=0.2 is the
-  next step before any results lock.
+**Explicit non-claims:**
+- Not higher accuracy than supervised classifiers (RF 96.3% beats every TDA configuration).
+- Not demonstrated real-time or onboard deployment. Per-flow cost is 3.6 s on an emulated
+  workstation; companion-class (Jetson/RPi) numbers do not exist yet.
+- Not that TDA features complement raw features for supervised classification.
+- No generalization beyond UAVIDS-2025 (single simulated benchmark, no timestamps).
+- Never cite the poster's "57.1% baseline" (provenance unknown); never claim zero-day detection.
 
 ---
 
-## 6. Current empirical results (probe, n=200 per class, top-K=20, delta=0.5)
+## 4. Methodology snapshot (verified against `uav_tda/config.py` and the production run)
 
-### Binary AUC (Normal vs any Attack)
-- C2 alone: 0.46 (below chance)
-- Network alone: 0.73
-- Physical alone: 0.60
-- C2 + Network: 0.64
-- C2 + Physical: 0.53
-- **Network + Physical: 0.82**
-- All three combined: 0.69
-
-### Per-attack one-vs-rest AUC by manifold
-- Sybil: C2=0.45, **Network=0.84**, Physical=0.25
-- Flooding: C2=0.54, **Network=0.75**, Physical=0.38
-- Blackhole: C2=0.49, Network=0.33, **Physical=0.76**
-- Wormhole: C2=0.48, Network=0.31, **Physical=0.71**
-
-### Supervised numbers for context (3 seeds, full data)
-- Original 22 features + RF curated: **96.3% accuracy, 0.997 weighted AUC** (baseline)
-- Combined (original + summary + images) + RF curated: 95.8% accuracy
-- TDA-only (summary_only) + RF: 81.0% accuracy
-
-The supervised numbers go in Section 4.1 as context for the unsupervised pitch,
-not as a headline. The contribution is unsupervised.
-
----
-
-## 7. Open diagnostics that gate finalizing numbers
-
-Two diagnostics must run before any results in Section 6 are considered locked:
-
-**Diagnostic A — Confirmation probe at lower approximation.** Re-run the probe
-at top-K=50 and delta=0.2 (vs the current top-K=20, delta=0.5). Expected runtime
-30–60 seconds. If AUCs hold within ±0.02 of current numbers, we're solid. If
-they shift by more, the new numbers replace what's in Section 6.
-
-**Diagnostic B — Per-manifold Z-score normalization.** The current "combined"
-score sums raw Wasserstein-2 distances across manifolds. Because C2, Network,
-and Physical have different scales (C2 distances ~0.02–0.09; Network ~0.0–0.06;
-Physical ~0.0–0.05), summing raw distances may be the reason C2 appears to hurt.
-Re-compute combined AUC after Z-normalizing each manifold's distances on the
-validation Normal-Traffic distribution. Two possible outcomes:
-- If Z-normalized combined AUC ≥ 0.78: the "C2 hurts" finding is a scale artifact.
-  Reframe as "per-manifold normalization is essential," cite Z-normalized numbers
-  throughout, drop "C2 paradox" framing.
-- If Z-normalized combined AUC < 0.75: the C2 manifold is genuinely uninformative
-  for topological discrimination on this dataset. Keep the C2-paradox framing
-  as a real finding.
-
-Both diagnostics must be in hand before drafting the abstract or Section 4.
+- **Dataset:** UAVIDS-2025, 122,171 UDP flows, 23 columns, 5 classes. Quirks in `data/README.md`.
+- **Split:** stratified 70/15/15 = 85,519 / 18,326 / 18,326, seed 42.
+- **Manifolds:** C2 = last-octet SrcAddr/DstAddr + one-hot ports {9, 654} + FlowDuration (7 cols);
+  Network = packet/byte counts and rates + MeanPacketSize (10); Physical = MeanDelay, MeanJitter,
+  Throughput, PacketDropRate, AverageHopCount (5). StandardScaler fitted on train only.
+- **Reference cloud:** 500 k-medoids Normal-Traffic training flows; medoids selected on C2, same
+  row positions reused across manifolds (disclosure item, see `paper/historical/…/METHODS_DISCLOSURES.md`).
+- **Filtration:** per-flow Vietoris–Rips on {query} ∪ reference; max edge = 25th percentile of
+  reference pairwise distances (C2 0.494, Network 0.145, Physical 0.333; the spec's p95 blew up
+  the simplex tree). Sparse Rips ε=0.5 for C2/Network (H0–H2), exact Rips for Physical (H0–H1).
+- **Score:** Wasserstein-2 (hera) from the flow's diagram to the manifold's reference-only
+  baseline barcode, summed over homology dimensions; **canonical combination = val-Normal
+  z-normalized SUM across manifolds**. The abstract reported the raw unweighted sum; the
+  monolith's max-pool survives only as the frozen port in `uav_tda/unsupervised.py`.
+- **Threshold:** 95th percentile of validation-Normal scores. Label-free = no attack labels.
+- **Probe (abstract and 10-seed campaign):** 200 flows/class, top-K=50 bars, hera δ=0.2,
+  `w2_timeout` 30 s. **Full-test campaign:** all flows, full diagrams, hera δ≤0.01, no timeout.
+- **Windowed variant:** non-overlapping FlowID-order windows; one Rips complex per
+  (window, manifold) on window points only; W2-medoid val-Normal baseline; exact Rips for C2 and
+  Physical, sparse ε=0.5 for Network; 10 ordered repeats + 10 shuffle controls per W.
+- **Seeds:** `PROBE_SEEDS=(42,7,123)`; `MANUSCRIPT_SEEDS=(42,7,123,0,1,2,3,4,5,6)`;
+  `SUPERVISED_SEEDS=(42,7,2024)`; `PRIMARY_SEED=42`. CIs are cluster bootstraps, B=2000.
+- **Determinism:** GUDHI 3.11 sparse Rips is nondeterministic per call; sparse surfaces are
+  statistically reproducible only. Part of the published "seed variance" is process noise.
 
 ---
 
-## 8. Paper structure (5-page extended abstract for AIAA SciTech 2027 IS)
+## 5. Settled decisions (do not relitigate)
 
-- **Abstract** (~200 words). Lead with the problem (UAV IDS in contested
-  operation, lack of labeled adversary data). State the technical move
-  (multi-manifold persistent homology). Lead with the empirical findings
-  (manifold attribution, label-free AUC of 0.82 on N+P, mismatch with two of
-  Zeng's predictions). End with a limitation sentence (probe approximation, no
-  hardware validation).
-- **Section 1 — Introduction** (~3/4 page). Aerospace motivation, three research
-  questions from Section 2 of this brief, three contributions from Section 3.
-- **Section 2 — Background and Related Work** (~3/4 page). UAVIDS-2025 and Zeng
-  et al.'s supervised baselines (positioned as "what's known"). Bruillard, Nowak,
-  Purvine 2016 (persistent homology for NetFlow anomaly detection — closest
-  prior work, differentiate via multi-manifold decomposition). Vietoris-Rips and
-  Wasserstein references.
-- **Section 3 — Methodology** (~1.5 pages). Three-manifold partition with
-  citation to UAVIDS-2025 Table III. Reference-cloud Vietoris-Rips construction.
-  Wasserstein-2 distance to baseline barcode. Per-manifold thresholding and
-  combination rule. Probe approximations (top-K, delta) disclosed explicitly.
-- **Section 4 — Results** (~1.25 pages). Three subsections:
-  - 4.1 Supervised context (one paragraph; reference Zeng baselines, note our
-    raw-RF replication, position as background)
-  - 4.2 Manifold attribution (the per-attack table from Section 6 of this brief,
-    plus discussion of Zeng-mismatch on Blackhole/Wormhole)
-  - 4.3 Label-free detection and the C2 question (binary AUC table, the
-    network+physical = 0.82 finding, the C2-related discussion conditional on
-    Diagnostic B outcome)
-- **Section 5 — Limitations and Final Manuscript Plan** (~1/2 page). Probe
-  approximation. No hardware validation. Single dataset. Label-free uses Normal
-  labels (deployment substitute = trusted initialization window). Final
-  manuscript will run exact Wasserstein on full test, profile on ARM hardware,
-  test trusted-initialization-window baseline construction.
-- **Section 6 — Conclusion** (~1/4 page). One paragraph tying findings back to
-  the operational framing.
+1. Capability framing, not performance framing; TDA-vs-RF accuracy is not the claim.
+2. Exactly three contributions in the abstract; windowed comparison is the manuscript's lead addition.
+3. Disjoint 7/10/5 partition per Zeng Table III; "manifold" used loosely, one footnote.
+4. Label-free = no attack labels; Normal labels seed the reference cloud and threshold; deployment
+   substitute is a trusted-initialization window.
+5. Zeng mismatch is a finding, not a flaw; Sybil is the single per-flow divergence.
+6. C2 paradox retired; z-normalized SUM is the canonical score.
+7. `pipeline.py` is a byte-frozen oracle; `tools/`, top-level `results/tables/*.csv`, and the
+   three historical `paper/*.md` are immutable provenance. New numbers only in `results/tables/rebuild/`.
+8. "Exact" Wasserstein = hera δ≤0.01; δ=0 and the POT/LAP backend are abandoned.
+9. Sparse-Rips comparisons use calibrated tolerances, never bit equality.
+10. Environment pins stay (py 3.9.7 / numpy 1.20.3 / gudhi 3.11.0); no new runtime dependencies.
+11. Every results doc is a candidate until the authors sign off; no number enters `main.tex` before then.
 
 ---
 
-## 9. File and directory discipline
+## 6. Tried and abandoned (so it does not get re-proposed)
 
-**Off-limits (read-only):**
-- `pipeline.py` (frozen)
-- `data/` (immutable raw dataset)
-- `outputs/` (production-pipeline-written artifacts)
-- `logs/`
-- `archive/` (quarantined legacy code — `poster_eda/`, `scripts_archive/`, `poster.jsx`; read-only history; `archive/poster_eda/` contains a known data-leakage flaw, see `archive/README.md`)
-
-**Write zones:**
-- `tools/` (diagnostic and probe scripts)
-- `paper/` (this brief, drafts, results markdown, outline)
-- `results/tables/` (tables to be cited in the paper)
-- `results/figures/` (figures for the paper)
-
-**Authoritative files:**
-- `paper/PROJECT_BRIEF.md` — this document
-- `paper/PROBE_RESULTS.md` — latest probe results (to be updated after
-  Diagnostic A)
-- `paper/METHODS_DISCLOSURES.md` — verbatim prose-ready disclosures
-- `results/tables/supervised_summary.csv` — final supervised numbers
-- `results/tables/probe_distances.csv` — raw per-flow probe scores
-- `tools/quick_unsup_probe.py` — probe runner
-
-Anything not in `paper/`, `tools/`, or `results/` should be treated as
-production infrastructure and not modified.
+- "TDA improves supervised accuracy" — dead (96.3% raw vs 95.8% combined vs 81.0% TDA-only).
+- "TDA features complement raw features" — dead.
+- "Persistence images add discriminative value" — no, curated subset ≈ summary-only.
+- "GPS-denied ⇒ drop Physical" — superseded by "no C2 visibility ⇒ drop C2" (N+P subset).
+- "C2 hurts the combined detector" (C2 paradox) — probe/scale artifact; retired 2026-05-24.
+- Full-test exact W2 "infeasible (~74 h), deferred to journal" — **overtaken**: Phase 6 ran all
+  22,252 flows at δ≤0.01 in ~1.0–1.2 s/flow. Only literal δ=0 remains infeasible.
+- "Only one seed was run" — overtaken by 3 then 10 seeds.
+- Fork-based W2 timeouts inside loky workers; closure-captured diagram dicts in joblib tasks —
+  both crashed the Phase-6 campaign; replaced by in-process hera + chunked worker-side loading.
+- Pre-campaign hypothesis "Blackhole is never a window majority" — disproved (19–21% of windows).
+- "Contamination detection rate is monotone at every W" — pooling artifact; corrected to
+  per-arm computation (non-monotone dip at 50–75% contamination for W≤100).
 
 ---
 
-## 10. The next 48 hours, in execution order
+## 7. Genuinely open items
 
-These are blocking dependencies. Do them in order. Do not start drafting until
-items 1 and 2 are done.
+**Manuscript corrections (must land in the full manuscript):**
+1. §V "exact Wasserstein on the full test set" → "high-precision (δ≤0.01)" plus the intractability finding.
+2. §V "1–3 s per flow" → measured 3.58 s mean / 3.86 s p95 (C2 Rips dominates).
+3. Latency numbers are Rosetta-emulated workstation figures, not companion-class hardware.
+4. The windowed compute-frontier's per-flow reference cost (0.0602 s, "6.6× cheaper at W=25") is
+   W2-only (it times `probe.run_probe` on precomputed diagrams) while the windowed marginal includes
+   Rips; against the latency harness's full-path 3.58 s the ratio is ~400×. Recompute or reword
+   before the frontier figure is used.
+5. Reconcile window-level attribution flips (Sybil→C2 etc.) with the per-flow attribution story.
 
-1. **Run Diagnostic A.** Execute `python3 tools/quick_unsup_probe.py
-   --per-class 200 --top-k 50 --delta 0.2 --seed 42`. ~30–60 seconds.
-   Update `paper/PROBE_RESULTS.md` with new numbers. Compare against Section 6
-   of this brief.
+**Author decisions pending:** sign-off on the five results docs; keep vs untrack the third-party
+dataset; untrack `archive/poster_eda/node_modules` (3,981 files, 84% of tracked files); delete
+local `outputs/` (32 GB) vs keep for re-runs; drop the April 2026 stash that pins 1.3 GB of
+leakage-era blobs in the pack; prune the five stale `.claude/worktrees/`.
 
-2. **Run Diagnostic B.** Write a 20-line script `tools/diagnose_c2_scaling.py`
-   that loads `results/tables/probe_distances.csv`, computes per-manifold mean
-   and std on validation Normal-Traffic distances, applies Z-normalization to
-   each manifold column, recomputes the seven dropout-combination AUCs and the
-   binary AUC on the normalized scores, and writes
-   `paper/C2_NORMALIZATION_DIAGNOSTIC.md`.
+**Experiments not run (optional):** companion-board (Jetson/RPi) or native-arm64 latency run
+(harness is portable, `paper/LATENCY_RESULTS.md` §6); threshold / precision–recall sweep;
+per-class H0/H1 bar-count analysis to test the "topology simplification" hypothesis for sub-0.5
+attack×manifold AUCs (Blackhole on Network 0.33, Sybil on Physical 0.20); cross-benchmark evaluation
+(promised in §V as deferred; no second dataset identified).
 
-3. **Resolve the C2 framing.** Based on Diagnostic B output:
-   - If normalized combined ≥ 0.78: drop "C2 paradox" framing, replace with
-     "per-manifold normalization is essential" framing. Section 4.3 restructured.
-   - If normalized combined < 0.75: keep "C2 paradox" framing. Section 4.3 stays
-     as a finding.
-
-4. **Confirm with Dr. Sun.** Send him this brief and the two diagnostic outputs.
-   Confirm the contribution list (Section 3) and the headline framing (Section 1).
-   Do not start drafting prose until he signs off.
-
-5. **Draft the Methodology section first.** Use Section 5 of this brief
-   verbatim as a starting point. Methodology is the most stable section
-   regardless of small number movements. ~1.5 pages.
-
-6. **Draft Background.** ~3/4 page. UAVIDS-2025 baselines, Bruillard/Nowak/Purvine,
-   Vietoris-Rips and Wasserstein references. Citations should already be in the
-   project files.
-
-7. **Draft Results section 4.2 (manifold attribution).** Build the per-attack
-   AUC table from Section 6 numbers. Add the Zeng-mismatch discussion. ~1/2 page.
-
-8. **Draft Results section 4.3 (label-free detection).** Build the binary AUC +
-   dropout table from Section 6. Conditional on Diagnostic B outcome, finalize
-   the C2 framing. ~1/2 page.
-
-9. **Draft Results section 4.1 (supervised context).** ~1 paragraph. Reference
-   Zeng baselines. Frame as "what's known."
-
-10. **Draft Limitations and Final Manuscript Plan.** ~1/2 page. Honest list.
-
-11. **Draft Introduction.** ~3/4 page. RQs and contributions from this brief.
-    Write Introduction late, after Results are solid, so the contribution
-    framing matches what the data actually supports.
-
-12. **Draft Conclusion and Abstract last.** Both should be straightforward
-    once everything else is written.
+**Figures:** no current-code generator exists for the windowed detection-vs-W curve, contamination
+curve, latency bars, attribution heatmaps, or full-test ROC curves. All `results/figures/*.png`
+dated April 2026 are legacy monolith output and must not be used.
 
 ---
 
-## 11. Things to remember while writing
+## 8. Writing reminders
 
-- **Capability framing, not performance framing.** The contribution is what the
-  method reveals and what it enables, not what it scores. Resist any sentence
-  that compares TDA AUC favorably to supervised AUC; that comparison is not
-  in our favor and is not the claim.
-- **"Label-free" means no attack labels.** Be explicit: we use Normal-Traffic
-  labels to identify which flows seed the reference cloud and which seed the
-  threshold; we never expose the detector to any attack label. In deployment
-  this is substituted by a trusted-initialization-window of known-good
-  operation. State this distinction once, clearly, in Methodology.
-- **The word "manifold" is being used loosely.** These are feature subspaces in
-  Euclidean space, not smooth manifolds in the differential-geometry sense.
-  Disclose once in Methodology with a footnote.
-- **Honesty about the Zeng mismatch is a feature.** Do not paper over the
-  Blackhole/Wormhole disagreement. State it directly. Discuss what it implies
-  about TDA seeing protocol-level signatures that feature-inspection-based
-  predictions miss.
-- **Limitations belong in Section 5, not the abstract.** The abstract should
-  state findings cleanly. The limitation acknowledgment goes in its own section
-  and is honest but bounded.
-- **All numbers come from `paper/PROBE_RESULTS.md` and
-  `results/tables/supervised_summary.csv`.** Do not paraphrase. Do not round
-  more than two decimal places. Do not cite a number you cannot trace to one
-  of those files.
+- Capability framing. Resist any sentence comparing TDA AUC favorably to supervised AUC.
+- State once in Methodology what "label-free" means and what substitutes for Normal labels in deployment.
+- Disclose: p25 edge cap (why), sparse ε=0.5 and its nondeterminism, C2-only medoid selection,
+  essential-H0 truncation, SVM 5k subsample, z-normalized SUM replacing the raw sum, FlowID order as
+  temporal proxy, δ≤0.01 rather than exact, Rosetta-emulated latency.
+- Zeng agreement is Blackhole, Wormhole, Flooding; Sybil is the divergence. At window level Sybil
+  moves to C2 — discuss, do not bury.
+- Every number traces to `results/tables/rebuild/**` via one of the five results docs, or to the
+  immutable published CSVs for the as-submitted numbers. Do not round beyond two decimals in prose;
+  tables may carry four. Use the golden-tested LaTeX snippets in `results/tables/rebuild/paper_snippets/`.
+- Limitations go in §V, not the abstract.
 
 ---
 
-## 12. What was tried and abandoned (so it does not get re-proposed)
+## 9. Decision authority
 
-- "TDA improves supervised accuracy" — dead. Raw RF baseline 96.3%, combined
-  RF 95.8%, TDA-only 81.0%. Do not pitch this.
-- "TDA features complement raw features" — dead. Combined is worse than raw.
-- "Persistence images add discriminative value" — they do not on this benchmark;
-  the curated subset performs comparably to summary-statistics-only.
-- "GPS-denied = drop Physical manifold" — superseded. The operationally
-  defensible pitch is "no-C2-visibility = drop C2," which gives the 0.82 AUC.
-- The full unsupervised pipeline at exact Wasserstein on all 18,326 test
-  flows — infeasible on current compute (~74 hours estimated, hera hangs on
-  pathological diagrams). Deferred to journal version. The probe approximation
-  is the disclosure path.
-- Three-seed variance reporting on the probe — only 1 seed (42) was run.
-  Document as a limitation. Re-running with multiple seeds is a future-work
-  item, not a paper blocker.
-
----
-
-## 13. Decision authority
-
-The framing decisions in this document — three contributions, manifold partition,
-label-free framing, Zeng-mismatch as finding-not-flaw — are settled. They were
-made jointly by Oliver, Dr. Sun, and the advisory LLM after reviewing the probe
-results on 2026-05-23.
-
-If something in this document seems wrong as you encounter new data, raise it
-explicitly. Do not silently work around it. Update this file and note the change
-in a "decision log" appended at the bottom.
+Framing decisions (three contributions, manifold partition, label-free framing, Zeng mismatch as
+finding) were made jointly by Oliver, Dr. Sun, and the advisory LLM on 2026-05-23/24. Every
+infrastructure-era ruling (canonical score, δ≤0.01 redefinition, frozen surfaces) is recorded below
+with its date. If new data contradicts anything here, raise it explicitly and append a log entry.
 
 ---
 
@@ -364,3 +236,4 @@ in a "decision log" appended at the bottom.
 - **2026-09-22 (Phase-6 high-precision Wasserstein-2 campaign complete):** Ran the definitive full-test-split Wasserstein-2 campaign (`uav_tda/exact.py`, `uav-tda exact`/`exact-report`) replacing the probe approximation for the paper's §V "exact full-test" promise, over all 22,252 flows (test 18,326 + val-Normal 3,926, 45 sharded/resumable shards). **Not literally exact**: a pre-launch re-benchmark found hera's true exact mode (`delta=0.0`, auction-LP) timed out on the 120s fork-timeout for ≥1 homology dim of EVERY one of 13 sampled real flows across all 3 manifolds (13/13; not just pathological cases), projecting ~30 days at `--n-jobs 7` (~220× the plan's 3.3s/flow-based estimate) — itself a §V-relevant intractability finding. The alternative exact backend (`gudhi.wasserstein`, POT-backed LAP) was found unusable without a new, disallowed dependency (`import ot` unconditional, POT not installed). Controller ruling redefined the campaign as **high-precision** hera `delta<=0.01` (hera's own default tolerance, confirmed fast) run DIRECTLY IN-PROCESS on the campaign's hot path (`direct_w2_flow`) with **NO wall-clock timeout** — a per-dim call is wrapped only in a Python try/except (a caught exception zeroes that dimension and flags the flow, with no retry attempt); the separate `delta=0.05` timeout-retry machinery (`exact_w2_flow`) was used only for the pre-launch delta=0 intractability benchmark and is never called by the campaign itself. 0 exceptions were caught and 0 flows were flagged across all 22,252 campaign flows. Two further launch-engineering fixes were needed before a shard would complete: (1) `probe._w2_with_timeout`'s per-call fork nested inside a joblib/loky worker is unstable on macOS (first launch: 0 shards in 47min, workers dying) — fixed by calling hera directly in-process (`direct_w2_flow`, mirroring `pipeline.py`'s production `_wasserstein_for_flow`); (2) the parent process holding the full split's diagrams (~250-350MB/manifold) in a closure re-pickled per one of ~500 per-flow tasks exhausted this workstation's memory (second launch: 0 shards in 16min despite fix (1); confirmed via an n_jobs=1 isolation-probe smoke shard that completed cleanly with zero loky processes) — fixed by chunking each shard into ~100-flow, per-manifold worker-side-loading tasks (`_process_chunk_for_manifold`) at `--n-jobs 3`; the campaign then completed all 45 shards with zero worker churn, ~1.0-1.2 s/flow cadence. **Headline**: exact znorm all_three binary AUC = **0.9082 [0.9033, 0.9131]** (raw 0.9037 [0.8982, 0.9093]), vs the probe 10-seed mean **0.8930 ± 0.0078** — delta **+0.0153**, within the ±0.05 science gate (probe approximation measured, not assumed, to be conservative-but-close on this headline number; every subset showed the exact AUC ≥ or ≈ the probe mean, exact-minus-probe deltas ranging +0.0044 to +0.0524 across all 14 subset×scoring cells). Per-attack dominant-manifold attribution REPLICATES exactly at full-test scale: Sybil→network (0.8878), Flooding→network (0.7869), Blackhole→physical (0.7916), Wormhole→physical (0.7281) — identical to the 3-seed and 10-seed findings. A δ=0.01-vs-δ=0.05 insensitivity check on a 500-flow subsample found max |ΔAUC| = 0.0002 across all 7 subsets — the campaign's residual delta-tolerance approximation is negligible for AUC ranking, quantified rather than assumed. All four T3 sanity gates passed (znorm all_three within band; per-attack dominance matches; row counts exact 18,326+3,926; timeout/approx counts 0/0). Full report (config header with the intractability/POT/launch-engineering story, definitive binary+per-attack tables, exact-vs-probe-vs-published comparison, insensitivity check): `paper/EXACT_RESULTS.md`, generated by `write_exact_report`, machine-generated from `results/tables/rebuild/exact/*.csv` (assembled from the 45 shard CSVs + persisted baselines) — **pending author sign-off**, no number here yet approved for the manuscript. Full investigation timeline (three controller interventions, benchmark numbers, kill/fix/relaunch sequence): `.superpowers/sdd/2026-09-22-plan6-exact-w2-latency/task-3-report.md`.
 - **2026-09-22 (Phase-6 Track B portable latency harness complete):** Implemented and ran the §V onboard-latency characterization (`uav_tda/latency.py`, `uav-tda latency`): a portable, one-command harness measuring the FULL production inference path (standardize → Rips → slice/truncate → Wasserstein-2) per sampled decision, for the per-flow arm (paper's deployed probe-style config: `SPARSE_RIPS_EPSILON`, `PROBE_TOP_K=50`, `PROBE_DELTA=0.2` — deliberately NOT the Track-A exact-campaign config) and the windowed arm (`WINDOWED_SPARSE` at each W ∈ {25, 50, 100, 200}), n=30 sampled decisions per mode. **Headline**: measured per-flow decision cost (all 3 manifolds summed) mean **3.5762s**, median 3.5855s, p95 **3.8591s** — ABOVE the paper's published "1–3 seconds" per-flow claim (`CLAUDE/PROJECT_BRIEF.md` §4, quoted as a 2020-era-laptop estimate); read per-manifold instead, c2 alone (3.0753s mean) sits almost exactly at the claim's upper bound while network (0.0813s) and physical (0.4196s) are well below it — c2's Rips construction (~3.06s, ~97% of its total) dominates the per-flow cost, consistent with C2's higher-dimensional homology (H2) and sparse-Rips epsilon=0.5. **Fastest available decision mode**: windowed W=25's marginal per-window cost, **0.0075s/decision** (net of its one-time 78.09s val-baseline setup, reported as a separate fixed cost per the matched-compute-frontier convention already used in `paper/WINDOWED_RESULTS.md`) — ~477× cheaper per decision than the per-flow arm, though a windowed decision covers W=25 flows at once, not a single flow, so this is not a like-for-like per-flow comparison (stated explicitly in the report). **Two disclosures**: (1) ARM-ISA-but-workstation-class — this run used the anaconda Python 3.9.7 build's own `platform.machine()`, which reported `x86_64`, NOT arm64; independent verification (`uname -m`, `sysctl -n machdep.cpu.brand_string`) confirmed the underlying silicon is a genuine Apple M1 Pro (arm64) and this Python binary is running under Apple's Rosetta 2 x86_64 translation layer — an emulation detail beyond the plan's original "workstation-class ARM-ISA" framing, now disclosed explicitly in the report (a native-arm64 Python build could measure differently). Regardless of process architecture, this remains a workstation (unified memory, no thermal/power constraints) and not a companion-class board, so all numbers are a lower bound on real onboard latency. (2) A real correctness finding: the per-manifold `outputs/scaler_{m}.pkl` files on this repo are STALE, fitted on an older/different feature schema (e.g. c2's file expects 5 columns named `SrcAddr_octet`/`SrcPort_binary`/... vs the current `config.C2_FEATURES`'s 7 columns) and written by neither `pipeline.py` nor any `uav_tda` module — the harness uses the combined `outputs/scalers.pkl` (written by `data.run_prep`, verified feature-count-correct) exclusively and asserts on any future mismatch. The harness is designed to run unmodified on a companion board (Jetson/RPi): `paper/LATENCY_RESULTS.md` §6 lists the exact small artifacts needed (`outputs/{m}_{train,val,test}.csv`, `reference_indices.npy`, `max_edge_lengths.json`, `labels_{test,val}.csv`, `scalers.pkl`, optionally the persisted exact-campaign baselines) and explicitly excludes the multi-hundred-MB persistence-diagram pickles — every diagram the harness times is computed fresh, on the fly, exactly as a deployed detector would. Full report (machine header, per-stage mean/median/p95 breakdown per mode, paper-claim check, matched-compute fastest-mode comparison, both disclosures, companion-hardware instructions): `paper/LATENCY_RESULTS.md`, generated by `uav-tda latency` from `results/tables/rebuild/latency_Olivers-MacBook-Pro.local.csv` and its five per-mode detail CSVs — **pending author sign-off**, no number here yet approved for the manuscript.
 - **2026-09-23 (Phase-7 infrastructure program complete — final entry):** Closed the 7-phase infrastructure roadmap (Phases 1–7, PRs #11–#16 plus this task): the `uav_tda` package strangler-ported from `pipeline.py` with hermetic equivalence tests (Phase 2); z-normalized clean-lineage scoring (Phase 3); the ten-seed bootstrap-CI manuscript campaign (Phase 4); the time-windowed multi-manifold variant (Phase 5); the full-test-split high-precision Wasserstein-2 campaign and the portable onboard-latency harness (Phase 6); and, in Phase 7, ruff lint + a portable CI workflow + Makefile (Tasks 1–2), followed by this task (Task 3): quarantining `poster_eda/`, `scripts_archive/`, and `poster.jsx` under `archive/` (git-mv, history preserved; `archive/README.md` carries the data-leakage warning on `poster_eda/`), a `data/README.md` documenting the immutable UAVIDS-2025 CSV (sha256, no-timestamps/FlowID-order caveat), a rewritten top-level `README.md`, and an accuracy sweep of `CLAUDE/CLAUDE.md` (file discipline, full CLI subcommand list, ops lessons). The five results docs in `paper/` — `EXACT_RESULTS.md`, `LATENCY_RESULTS.md`, `WINDOWED_RESULTS.md`, `MANUSCRIPT_STATS.md`, `ZNORM_RESULTS.md` — constitute the manuscript-ready results package; **all five remain pending author sign-off**, no number in any of them is yet approved for the manuscript. Three outstanding manuscript corrections carried forward from Phase 6, still unresolved as of this entry: (1) the paper's "exact Wasserstein-2" claim must be corrected to high-precision (δ≤0.01, hera's own default tolerance) — literal δ=0 exact mode was measured intractable (13/13 sampled flows timed out at the 120s fork bound across all 3 manifolds, ~30-day campaign projection); (2) the published "1–3 seconds" per-flow latency estimate must be corrected against the measured per-flow decision cost, mean **3.5762s** (median 3.5855s, p95 3.8591s), c2's Rips construction being ~97% of that cost; (3) all latency figures are Rosetta-emulated-x86_64-on-Apple-M1-Pro workstation numbers (unified memory, no thermal/power constraints), not companion-class (Jetson/RPi) hardware — a native-arm64 or companion-board run remains a future-work item, not yet executed. Infrastructure work on this repository is done; remaining work is exclusively manuscript-side (author review of the five pending reports, resolving the three corrections above, and writing).
+- **2026-10-18 (manuscript-readiness audit; CLAUDE/ cleanup):** Regenerated this brief's body (sections 0–9) to the post-Phase-7 state; the decision log above is carried verbatim. Moved the agent-instructions file from `CLAUDE/CLAUDE.md` to the repo root `CLAUDE.md` (a subdirectory `CLAUDE.md` is not auto-loaded by Claude Code; verified this session). Deleted `CLAUDE/RESEARCH_CONTEXT.md` (May-2026 handoff for the numbered-scripts era: 5D/15D/2D overlapping manifolds, k-NN TDA, 1,000-flow baseline, 3σ threshold — every methodology, result, and repo-structure statement in it was superseded); its only unique content (dataset quirks → `data/README.md`; the topology-simplification hypothesis, the un-run threshold-sweep and H0/H1-count ideas, and the "57.1%"/"zero-day" cautions → §3 and §7 above) was migrated first. Recovered four never-committed May-2026 drafting docs (`HANDOFF_NOTES.md`, `OUTLINE.md`, `METHODS_DISCLOSURES.md`, `FIGURE_AUDIT.md`) from the stale worktree `.claude/worktrees/affectionate-dewdney-ef7609/paper/` into `paper/historical/2026-05-drafting/` (read-only; same data-loss path that lost `tools/` once). Added `CLAUDE/STATUS.md` (current status of repo, results package, manuscript, open decisions) and `CLAUDE/MANUSCRIPT_READINESS_AUDIT.md` (claim-by-claim audit of `main.tex` against the results package, figure/snippet gap list, prioritized manuscript edits). New finding logged as open correction #4 in §7: the windowed compute-frontier's per-flow reference cost (0.0602 s, "~6.6× cheaper at W=25", `paper/WINDOWED_RESULTS.md` §3) is a W2-only marginal — `windowed._time_per_flow_probe` times `probe.run_probe`, which loads precomputed diagrams and never builds a Rips complex — whereas the windowed marginal includes Rips construction; against the latency harness's full-path per-flow 3.5762 s the ratio is roughly 400×, so the frontier comparison must be recomputed on a like-for-like basis or reworded before use. Note for readers of the 2026-09-22 Phase-6 entry: the cited `.superpowers/sdd/2026-09-22-plan6-exact-w2-latency/task-3-report.md` is gitignored and no longer present on disk; the same investigation summary is in `paper/EXACT_RESULTS.md` §1. Repo state at this entry: PR #17 merged (2026-09-23), `main` == `origin/main` @ 4390e64, fast suite 103 passed / 0 skipped, ruff clean, CI green; `requirements.txt` identified as hazardous for the pinned env (pins numpy≥1.24 / pandas≥2.0) — root `CLAUDE.md` now says to install via `pip install -e ".[dev]"` only. Nothing in this entry changes any scientific number or framing; all five results docs remain pending author sign-off.
