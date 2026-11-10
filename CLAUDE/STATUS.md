@@ -1,7 +1,7 @@
-# Project Status — 2026-10-18
+# Project Status — 2026-11-09
 
 One page on where everything stands. Framing and decisions: `CLAUDE/PROJECT_BRIEF.md`.
-Manuscript audit: `CLAUDE/MANUSCRIPT_READINESS_AUDIT.md`. Agent rules: root `CLAUDE.md`.
+Manuscript audit (dated 2026-10-18 snapshot, not updated): `CLAUDE/MANUSCRIPT_READINESS_AUDIT.md`. Agent rules: root `CLAUDE.md`.
 Human entry point: `README.md`.
 
 ## Where we are
@@ -14,9 +14,10 @@ Human entry point: `README.md`.
   10-seed bootstrap campaign, the time-windowed variant, the full-test high-precision Wasserstein
   campaign, a portable latency harness, CI, lint, and legacy quarantine. No infrastructure work
   remains.
-- **Repo:** `main` == `origin/main` @ 4390e64. Fast suite 103 passed / 0 skipped; ruff clean;
-  CI green. Working branch for today's doc changes: `chore/claude-docs-status-audit` (uncommitted
-  at the time of writing).
+- **Phase 8 (manuscript artifacts):** done on branch `feat/uav-tda-phase8` (`uav-tda artifacts`):
+  full-path frontier, unique window counts, operating points, six figures, three new snippets,
+  backfilled sidecars. Fast suite 145 passed / 0 skipped; ruff clean. Report:
+  `paper/MANUSCRIPT_ARTIFACTS.md`; figures: `results/figures/manuscript/`.
 
 ## Results package (all pending author sign-off)
 
@@ -27,6 +28,7 @@ Human entry point: `README.md`.
 | `paper/WINDOWED_RESULTS.md` | W ∈ {25, 50, 100, 200}, 80 runs, shuffle control | W=100 0.9376 ± 0.0005; shuffle Δ +0.32–0.37; Sybil flips to C2 at window level |
 | `paper/LATENCY_RESULTS.md` | full inference path, per-flow + windowed | per-flow 3.576 s mean / 3.859 s p95 (Rosetta-emulated M1 Pro); W=25 0.0075 s/decision |
 | `paper/ZNORM_RESULTS.md` | 3-seed raw vs znorm; seed-123 reanalysis | 0 timeouts at 30 s |
+| `paper/MANUSCRIPT_ARTIFACTS.md` | full-path frontier, unique window counts, FPR/TPR, caveats | W=25 is **478x** cheaper per decision than per-flow; all-three znorm FPR 0.0555 / TPR 0.5703 |
 
 Every number was recomputed from its CSVs during the audit; zero mismatches. As-published numbers
 (3-seed raw probe) reproduce bit-exactly from the immutable `results/tables/probe_distances*.csv`.
@@ -38,21 +40,27 @@ Every number was recomputed from its CSVs during the audit; zero mismatches. As-
 3. "C2 adds noise; N+P is best" → all-three is best under z-normalized scoring.
 4. W2 ground metric is L2 not L∞; seed does not control k-medoids or Wasserstein; feature count is
    20 raw / 22 encoded; the val-Normal threshold was never computed in the abstract's lineage
-   (now measured: FPR ≈ 0.056, TPR 0.57).
-5. The windowed compute-frontier's per-flow cost (0.0602 s) excludes Rips; like-for-like the W=25
-   advantage is ~400×, not 6.6×. Recompute before using the frontier figure.
+   (now measured: FPR 0.0555, TPR 0.5703; closed).
+5. Frontier: fixed in the artifacts (full-path latency cost; **478x** at W=25, old 6.6x
+   superseded). The manuscript text still needs the 478x figure and the new frontier plot.
 6. Window-level attribution flips (Sybil → C2) must be reconciled with the per-flow Sybil story.
 7. Cross-benchmark evaluation was promised and not done.
 
-## Figures
+## Figures (Phase 8, closed)
 
-No current-code generators for: detection-vs-W, contamination curve, latency bars, attribution
-heatmaps, full-test ROC. Three LaTeX snippets exist (`results/tables/rebuild/paper_snippets/`).
-Fifteen of eighteen PNGs in `results/figures/` are April 2026 legacy output; do not use.
+Six vector PDFs in `results/figures/manuscript/` (frontier, detection-vs-W, contamination, latency,
+attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attribution_rows.tex`,
+`exact_binary_auc_pgfplots.tex` in `results/tables/rebuild/paper_snippets/`. April PNGs moved to
+`results/figures/legacy_2026-04/`. Also closed: unique-vs-pooled window counts, missing sidecars
+(backfilled), eps-max values persisted. Caption caveats:
+
+- Wormhole at W=50 is an effective Network/Physical tie (CIs overlap); do not read it as resolved.
+- Per-flow attribution block is a single full-test estimate; windowed blocks are 10-run means.
+- Thinnest contamination bin is n=1 (W=100, bin 0); low power.
 
 ## Open author decisions
 
-- Sign off (or amend) the five results docs; choose the per-flow headline estimand.
+- Sign off (or amend) the six results docs (incl. `MANUSCRIPT_ARTIFACTS.md`); choose the per-flow headline estimand.
 - Keep redistributing the third-party dataset in-repo, or untrack it.
 - Untrack `archive/poster_eda/node_modules` (3,981 files, 84% of tracked files).
 - Delete local `outputs/` (32 GB; ~10 GB disk free) or keep it for re-runs.
@@ -60,19 +68,9 @@ Fifteen of eighteen PNGs in `results/figures/` are April 2026 legacy output; do 
 - Replace or delete `requirements.txt` (its pins would break the pinned environment).
 - Run a companion-board latency measurement before December, or reword the promise.
 
-## What changed in `CLAUDE/` today
-
-- `CLAUDE/CLAUDE.md` → root `CLAUDE.md`, rewritten lean (a subdirectory copy was not auto-loaded).
-- `CLAUDE/PROJECT_BRIEF.md` body regenerated; decision log kept verbatim plus a 2026-10-18 entry.
-- `CLAUDE/RESEARCH_CONTEXT.md` deleted (May 2026 handoff for a superseded methodology); its
-  dataset quirks moved to `data/README.md`, its open ideas and cautions into the brief.
-- `CLAUDE/STATUS.md` (this file) and `CLAUDE/MANUSCRIPT_READINESS_AUDIT.md` added.
-- Four never-committed May 2026 drafting docs recovered from a stale worktree into
-  `paper/historical/2026-05-drafting/`.
-
 ## Regenerating anything
 
 `make test` for the fast suite. `uav-tda <x>-report` rebuilds a results doc from committed CSVs
-with no recompute (`znorm-report`, `manuscript-report`, `windowed-report`, `exact-report`);
+with no recompute (`znorm-report`, `manuscript-report`, `windowed-report`, `exact-report`, `artifacts`);
 `uav-tda latency` re-measures. `outputs/` is complete, so `uav-tda tda` never needs re-running.
 Install only with `pip install -e ".[dev]"`.
