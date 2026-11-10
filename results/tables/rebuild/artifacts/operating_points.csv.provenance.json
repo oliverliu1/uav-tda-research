@@ -1,0 +1,17 @@
+{
+  "artifact": "operating_points.csv",
+  "artifact_sha256": "08ede18fa55413d168d82ff646b037e8da799f243616c41896dbd6224b40e0bb",
+  "created_utc": "2026-11-10T04:56:40.421302+00:00",
+  "git_sha": "be5497968c7b63c17d06ff166d94ab1925cd9096",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "builder": "artifacts.operating_point_table",
+    "source": "exact/shard_{val,test}_*.csv (exact.assemble_distances)"
+  },
+  "uav_tda_version": "0.1.0"
+}

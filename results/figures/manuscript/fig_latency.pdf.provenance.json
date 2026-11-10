@@ -1,0 +1,49 @@
+{
+  "artifact": "fig_latency.pdf",
+  "artifact_sha256": "e56cc2bbd2ac571fe05f50de343f2353b427db87632fdd8ef39c09e67ca3853a",
+  "created_utc": "2026-11-10T04:56:42.457166+00:00",
+  "git_sha": "be5497968c7b63c17d06ff166d94ab1925cd9096",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "figure": "latency",
+    "legend_labels": [
+      "scaler + slice (\u22641.1 ms)",
+      "Rips",
+      "W2"
+    ],
+    "per_flow_stage_means_s": {
+      "c2": {
+        "rips_s": 3.0555574583666654,
+        "scaler_s": 0.0008449319666666,
+        "slice_s": 0.0001905721666654,
+        "w2_s": 0.0186868903333336
+      },
+      "network": {
+        "rips_s": 0.0543751264333335,
+        "scaler_s": 0.0008960374333341,
+        "slice_s": 0.0001214915666669,
+        "w2_s": 0.0259178306000006
+      },
+      "physical": {
+        "rips_s": 0.4133233362666659,
+        "scaler_s": 0.0007699861333343,
+        "slice_s": 0.0001688737333337,
+        "w2_s": 0.0053713555333336
+      }
+    },
+    "per_flow_total_s": 3.5762238905333343,
+    "source": "latency_Olivers-MacBook-Pro.local.csv",
+    "windowed_total_s": {
+      "100": 0.1156953595666777,
+      "200": 0.6035664263666679,
+      "25": 0.0074863831333326,
+      "50": 0.0265670845333393
+    }
+  },
+  "uav_tda_version": "0.1.0"
+}

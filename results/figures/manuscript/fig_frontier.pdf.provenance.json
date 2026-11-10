@@ -1,0 +1,27 @@
+{
+  "artifact": "fig_frontier.pdf",
+  "artifact_sha256": "3f2212543ac36c2c3a9978eddce4fc3dff5d76a70237823474daf64ec7de8035",
+  "created_utc": "2026-11-10T04:56:41.698095+00:00",
+  "git_sha": "be5497968c7b63c17d06ff166d94ab1925cd9096",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "exact_ref_auc": 0.908231183138054,
+    "exact_ref_source": "exact/exact_binary_auc.csv (all_three, znorm)",
+    "figure": "frontier",
+    "rows": [
+      "per_flow",
+      "25",
+      "50",
+      "100",
+      "200"
+    ],
+    "source": "windowed/compute_frontier.csv + latency_Olivers-MacBook-Pro.local.csv",
+    "x": "cost_s (latency-harness full-path total_s mean)"
+  },
+  "uav_tda_version": "0.1.0"
+}

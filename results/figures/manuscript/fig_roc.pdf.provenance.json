@@ -1,0 +1,39 @@
+{
+  "artifact": "fig_roc.pdf",
+  "artifact_sha256": "b40e06ad40749ad83c76767c098be624a7eb2127bb27b325accb5030f6f84e9b",
+  "created_utc": "2026-11-10T04:56:43.233688+00:00",
+  "git_sha": "be5497968c7b63c17d06ff166d94ab1925cd9096",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "auc": {
+      "all_three": 0.908231183138054,
+      "c2_only": 0.7843846224599536,
+      "network_only": 0.7532853713845021,
+      "network_physical": 0.8736579498500029,
+      "physical_only": 0.6581790113629931
+    },
+    "figure": "roc",
+    "legend": {
+      "all_three": "All three (AUC 0.908)",
+      "c2_only": "C2 (AUC 0.784)",
+      "network_only": "Network (AUC 0.753)",
+      "network_physical": "N+P (AUC 0.874)",
+      "physical_only": "Physical (AUC 0.658)"
+    },
+    "legend_placement": "below axes",
+    "n_test": 18326,
+    "operating_point": {
+      "fpr": 0.05552725420275089,
+      "tpr": 0.5703472222222222
+    },
+    "operating_point_source": "artifacts.operating_point_table (all_three, znorm)",
+    "scoring": "znorm",
+    "source": "exact/shard_{val,test}_*.csv (via exact.assemble_distances)"
+  },
+  "uav_tda_version": "0.1.0"
+}
