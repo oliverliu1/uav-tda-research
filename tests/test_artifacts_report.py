@@ -172,14 +172,27 @@ def test_report_unresolved_attribution_zero_case(frames):
 
 def test_report_cost_scope_auc_units_and_threshold_caveats(frames):
     text = artifacts.render_artifacts_report(frames, _inventory())
+    cost = next(ln for ln in text.splitlines() if ln.startswith("- *Windowed cost scope:*"))
     win = frames["frontier"][frames["frontier"]["row"] != "per_flow"]
     lo, hi = win["baseline_setup_s"].min(), win["baseline_setup_s"].max()
-    assert f"{lo:.2f}–{hi:.2f} s" in text
-    assert "Rips + W2 only" in text and "upper-end" in text
+    assert f"{lo:.2f}–{hi:.2f} s" in cost
+    assert "Rips + W2" in cost and "slicing inside" in cost and "no top-K" in cost
+    assert "no scaler stage" in cost and "pre-scaled" in cost and "upper-end" in cost
+    assert "excludes the scaler/slice" not in cost
+    lat = frames["latency"]
+    scaler = lat[(lat["mode"] == "per_flow") & lat["stage"].str.endswith("_scaler_s")]
+    assert len(scaler) == 3
+    assert f"{1000 * scaler['mean_s'].sum():.2f} ms" in cost
+
     assert "Unit caveat (M2)" in text and "window-level" in text
-    assert "contamination_curve.csv" in text and "near-normal" in text
+
+    thr = next(ln for ln in text.splitlines() if ln.startswith("- *Two different thresholds:*"))
+    assert "contamination_curve.csv" in thr and "near-normal" in thr
+    assert f"attack_frac ≤ {artifacts.NEAR_NORMAL_ATTACK_FRAC:g}" in thr
+    assert "pure-Normal" not in thr
     for _, r in frames["unique_windows"].iterrows():
-        assert f"W={int(r['w'])}: {int(r['n_pure_normal'])}" in text
+        assert f"W={int(r['w'])}: {int(r['n_near_normal'])}" in thr
+    assert "W=200: 5" in thr and "small at large W" in thr
 
 
 def test_report_footer_describes_sidecar_fields(frames):

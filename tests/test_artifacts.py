@@ -416,3 +416,32 @@ def test_unresolved_attributions_committed_data():
         ("Flooding Attack", "W=100", "c2", "network"),
         ("Flooding Attack", "W=200", "network", "c2"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Correction: near-normal contamination reference population
+# ---------------------------------------------------------------------------
+
+
+def test_unique_window_counts_near_normal_column():
+    df = artifacts.unique_window_counts().set_index("w")
+    assert list(df["n_near_normal"]) == [43, 16, 9, 5]
+
+
+def test_near_normal_cutoff_matches_committed_contamination_threshold():
+    import numpy as np
+
+    wdir = artifacts.DEFAULT_REBUILD_DIR / "windowed"
+    runs = sorted(wdir.glob("run_w25_ordered[0-9]*.csv"))
+    runs = [p for p in runs if p.stem[len("run_w25_ordered"):].isdigit()]
+    pooled = pd.concat([pd.read_csv(p, usecols=["attack_frac", "Z2_all_three"]) for p in runs])
+
+    def threshold(cutoff):
+        sel = pooled[pooled["attack_frac"] <= cutoff]
+        return float(np.percentile(sel["Z2_all_three"].to_numpy(), 95))
+
+    cc = pd.read_csv(wdir / "contamination_curve.csv", dtype={"bin": str})
+    committed = cc[(cc["w"] == 25) & (cc["arm"] == "ordered")]["threshold"].unique()
+    assert len(committed) == 1
+    assert threshold(artifacts.NEAR_NORMAL_ATTACK_FRAC) == pytest.approx(committed[0], abs=1e-9)
+    assert threshold(0.0) != pytest.approx(committed[0], abs=1e-9)

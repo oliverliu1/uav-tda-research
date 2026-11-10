@@ -190,6 +190,11 @@ def emit_full_path_frontier_pgfplots(df: pd.DataFrame, source: str = DEFAULT_FRO
 # ---------------------------------------------------------------------------
 
 _BLACKHOLE = "Blackhole Attack"
+# Near-normal reference cutoff of `windowed.contamination_curve` (inline literal
+# ``attack_frac <= 0.05`` there): windows at or below it form the empirical
+# reference population whose Z2_all_three Q95 is the contamination threshold.
+# Pinned against the committed thresholds by a test.
+NEAR_NORMAL_ATTACK_FRAC = 0.05
 
 
 def unique_window_counts(rebuild_dir=None, window_sizes=WINDOW_SIZES) -> pd.DataFrame:
@@ -200,6 +205,8 @@ def unique_window_counts(rebuild_dir=None, window_sizes=WINDOW_SIZES) -> pd.Data
     ``run_w{W}_ordered0.csv`` IS the unique window population. The
     ``pooled_*`` columns sum over every ``run_w{W}_ordered*.csv`` present --
     the xN-inflated figures `paper/WINDOWED_RESULTS.md` quoted.
+    ``n_near_normal`` counts unique windows with ``attack_frac <=
+    NEAR_NORMAL_ATTACK_FRAC`` (the contamination threshold's reference population).
     """
     wdir = _rebuild(rebuild_dir) / "windowed"
     rows = []
@@ -213,8 +220,9 @@ def unique_window_counts(rebuild_dir=None, window_sizes=WINDOW_SIZES) -> pd.Data
             return (len(frame), int((frame["attack_frac"] == 0).sum()),
                     int((frame["majority_label"] == _BLACKHOLE).sum()))
 
-        unique = _counts(pd.read_csv(wdir / f"run_w{w}_ordered0.csv",
-                                     usecols=["majority_label", "attack_frac"]))
+        unique_df = pd.read_csv(wdir / f"run_w{w}_ordered0.csv",
+                                usecols=["majority_label", "attack_frac"])
+        unique = _counts(unique_df)
         pooled = np.sum([_counts(pd.read_csv(p, usecols=["majority_label", "attack_frac"]))
                          for p in runs], axis=0)
         rows.append({
@@ -222,6 +230,7 @@ def unique_window_counts(rebuild_dir=None, window_sizes=WINDOW_SIZES) -> pd.Data
             "n_windows": unique[0],
             "n_pure_normal": unique[1],
             "n_blackhole_majority": unique[2],
+            "n_near_normal": int((unique_df["attack_frac"] <= NEAR_NORMAL_ATTACK_FRAC).sum()),
             "n_repeats": len(runs),
             "pooled_n_windows": int(pooled[0]),
             "pooled_n_pure_normal": int(pooled[1]),
@@ -484,6 +493,8 @@ def load_report_frames(rebuild_dir=None, latency_host=None) -> dict:
     rebuild = _rebuild(rebuild_dir)
     return {
         "frontier": build_full_path_frontier(rebuild, latency_host=latency_host),
+        "latency": pd.read_csv(find_latency_summary(rebuild, host=latency_host),
+                               float_precision="round_trip"),
         "compute_frontier": pd.read_csv(rebuild / "windowed" / "compute_frontier.csv",
                                         dtype={"row": str}),
         "operating_points": operating_point_table(rebuild),
@@ -573,8 +584,11 @@ def render_artifacts_report(frames: dict, inventory) -> str:
                 f"{_ci(u['runner_up_ci_lo'], u['runner_up_ci_hi'])} "
                 f"(difference {u['difference']:.4f})")
     setup_lo, setup_hi = win["baseline_setup_s"].min(), win["baseline_setup_s"].max()
-    pure_normal = ", ".join(f"W={int(r['w'])}: {int(r['n_pure_normal'])}"
+    near_normal = ", ".join(f"W={int(r['w'])}: {int(r['n_near_normal'])}"
                             for _, r in uw.sort_values("w").iterrows())
+    lat = frames["latency"]
+    pf_scaler_s = float(lat.loc[(lat["mode"] == "per_flow")
+                                & lat["stage"].str.endswith("_scaler_s"), "mean_s"].sum())
     thin = smallest_nonzero_contamination_bin(frames["contamination"], uw)
     uw_min = uw.sort_values("w").iloc[0]
 
@@ -611,20 +625,24 @@ def render_artifacts_report(frames: dict, inventory) -> str:
         "**Caption-level caveats.**",
         "",
         *tie_lines,
-        f"- *Windowed cost scope:* the latency harness's windowed `total_s` covers "
-        f"Rips + W2 only; it excludes the scaler/slice stages and the one-time "
-        f"`baseline_setup_s` ({setup_lo:.2f}–{setup_hi:.2f} s across W), whereas the per-flow "
-        f"`total_s` includes scaler + slice. The W={int(w_min['w'])} "
-        f"{w_min['speedup_vs_per_flow']:.0f}× speedup is therefore an upper-end figure.",
+        f"- *Windowed cost scope:* the latency harness's windowed `total_s` is Rips + W2 "
+        f"(per-dimension diagram slicing inside the timed W2 call; no top-K truncation). It "
+        f"has no scaler stage: window flows are read pre-scaled, so scaling them is untimed "
+        f"(order of magnitude: the per-flow scaler stage totals {1000 * pf_scaler_s:.2f} ms "
+        f"across the three manifolds in the latency summary). It also excludes the one-time "
+        f"`baseline_setup_s` ({setup_lo:.2f}–{setup_hi:.2f} s across W). The "
+        f"W={int(w_min['w'])} {w_min['speedup_vs_per_flow']:.0f}× speedup is therefore an "
+        f"upper-end figure.",
         "- *AUC units differ between arms:* per-flow AUC is flow-level, windowed AUC is "
         "window-level (majority label). The frontier and detection-vs-W figures put both on "
         "one axis, so cross-arm AUC comparisons are indicative, not like-for-like (see "
         "\"Unit caveat (M2)\" in `paper/WINDOWED_RESULTS.md`).",
         f"- *Two different thresholds:* the contamination figure's detection rate uses the "
         f"empirical near-normal Q95 threshold computed per (W, arm) in "
-        f"`windowed/contamination_curve.csv`, not the val-Normal "
-        f"Q{OPERATING_QUANTILE * 100:.0f} threshold of §3. That reference population is tiny "
-        f"at large W (unique pure-Normal windows {pure_normal}; §4).",
+        f"`windowed/contamination_curve.csv` from windows with attack_frac ≤ "
+        f"{NEAR_NORMAL_ATTACK_FRAC:g}, not the val-Normal Q{OPERATING_QUANTILE * 100:.0f} "
+        f"threshold of §3. That reference population is small at large W (unique "
+        f"near-normal windows {near_normal}; §4).",
         f"- *Attribution figure blocks are not like-for-like:* the per-flow block is a "
         f"single full-test estimate (`exact/exact_per_attack_auc.csv`), whereas each windowed "
         f"block is a {n_runs}-run mean (`windowed/windowed_attribution.csv`).",
@@ -687,10 +705,12 @@ def render_artifacts_report(frames: dict, inventory) -> str:
         "",
     ]
     rows = [[int(r["w"]), int(r["n_windows"]), int(r["n_pure_normal"]),
-             int(r["n_blackhole_majority"]), int(r["n_repeats"]), int(r["pooled_n_windows"]),
+             int(r["n_near_normal"]), int(r["n_blackhole_majority"]), int(r["n_repeats"]), int(r["pooled_n_windows"]),
              int(r["pooled_n_pure_normal"]), int(r["pooled_n_blackhole_majority"])]
             for _, r in uw.sort_values("w").iterrows()]
-    L += _md_table(["W", "unique windows", "unique pure-Normal", "unique Blackhole-majority",
+    L += _md_table(["W", "unique windows", "unique pure-Normal",
+                    f"unique near-normal (attack_frac ≤ {NEAR_NORMAL_ATTACK_FRAC:g})",
+                    "unique Blackhole-majority",
                     "repeats", "pooled windows", "pooled pure-Normal",
                     "pooled Blackhole-majority"], rows)
     L += ["", "## 5. Artifact inventory", ""]
