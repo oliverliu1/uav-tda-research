@@ -26,14 +26,15 @@ No new runtime dependencies (e.g. POT) without an explicit decision.
 ## Commands
 
 ```bash
-make test        # fast suite (pytest -m "not slow"), ~2 min, 103 tests — run before claiming anything works
+make test        # fast suite (pytest -m "not slow"), ~2 min, 145 tests — run before claiming anything works
 make test-all    # includes slow monolith-equivalence tests (needs .cache/monolith-debug/)
 make lint        # ruff, safety tier
-uav-tda --help   # 15 subcommands; README "Quickstart" + "Results docs" list which command regenerates which paper/*.md
+uav-tda --help   # 16 subcommands; README "Quickstart" + "Results docs" list which command regenerates which paper/*.md
+uav-tda artifacts [--root PATH]   # Phase 8: figures/tables/snippets + paper/MANUSCRIPT_ARTIFACTS.md from committed CSVs, no recompute
 ```
 
 Every subcommand supports `--debug` (fast stratified smoke) except `probe`, `znorm-report`,
-`manuscript-report`. `outputs/` (32 GB, gitignored) already holds the prep CSVs and per-flow
+`manuscript-report`, `artifacts`. `outputs/` (32 GB, gitignored) already holds the prep CSVs and per-flow
 persistence diagrams; `uav-tda tda` never needs re-running for probe/exact/windowed/latency.
 
 ## File discipline
@@ -46,14 +47,16 @@ oracles), and the historical `paper/{PROBE_RESULTS,MULTI_SEED_VARIANCE,C2_NORMAL
 and `paper/historical/`.
 
 **Write zones:** `uav_tda/`, `tests/`, `docs/`, `paper/` (new docs only), `CLAUDE/`,
-`results/tables/rebuild/` (all new tables; every artifact gets a `.provenance.json` sidecar).
+`results/tables/rebuild/` (all new tables; every artifact gets a `.provenance.json` sidecar),
+`results/figures/manuscript/` (generated manuscript figures, each with a sidecar).
 Golden-master `metrics.py` functions and the probe default path must not change behavior.
 
 ## Scientific rules
 
 - **Number provenance:** every number cited anywhere must trace to a committed CSV or
   machine-generated doc. Current candidates: `paper/{EXACT,WINDOWED,LATENCY}_RESULTS.md`,
-  `paper/MANUSCRIPT_STATS.md`, `paper/ZNORM_RESULTS.md` — **all pending author sign-off**.
+  `paper/MANUSCRIPT_STATS.md`, `paper/ZNORM_RESULTS.md`, `paper/MANUSCRIPT_ARTIFACTS.md` —
+  **all pending author sign-off**.
 - **Canonical score** = val-Normal z-normalized **SUM** across manifolds (`metrics.apply_znorm`,
   `probe.run_probe_with_znorm`). `uav_tda/unsupervised.py` keeps the monolith's max-pool as a
   frozen port only. Val-stats and test scores must come from the same baseline realization.
@@ -73,7 +76,8 @@ Golden-master `metrics.py` functions and the probe default path must not change 
 Chunk worker payloads; never closure-capture large arrays/diagram dicts into joblib tasks.
 `n_jobs<=3` for heavy campaigns. Never fork inside a loky worker (call hera in-process).
 Commit all code before launching any detached run; detach anything >10 min; shard + manifest
-for resumability. Check free disk before any `tda`/`features` rebuild.
+for resumability. Check free disk before any `tda`/`features` rebuild. Git from this Python must go through
+`uav_tda.provenance.run_git` (plain `git` fails under Rosetta; sidecars used to record "unknown").
 
 ## Process
 

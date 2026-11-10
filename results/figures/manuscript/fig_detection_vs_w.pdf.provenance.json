@@ -1,0 +1,28 @@
+{
+  "artifact": "fig_detection_vs_w.pdf",
+  "artifact_sha256": "90da1a0f8e8bd6f81fc4dcb60bdaf228b3fb813028da80a9cf6ba7cdca430402",
+  "created_utc": "2026-11-10T05:31:26.112671+00:00",
+  "git_sha": "570e09330fbeafd9d631632fc9030e1e69ee518b",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "exact_ref_auc": 0.908231183138054,
+    "exact_ref_source": "exact/exact_binary_auc.csv (all_three, znorm)",
+    "figure": "detection_vs_w",
+    "per_flow_auc": 0.8929525,
+    "per_flow_label": "per-flow (10-seed probe)",
+    "per_flow_source": "windowed/compute_frontier.csv (per_flow auc_mean)",
+    "source": "windowed/windowed_detection.csv",
+    "w": [
+      25,
+      50,
+      100,
+      200
+    ]
+  },
+  "uav_tda_version": "0.1.0"
+}

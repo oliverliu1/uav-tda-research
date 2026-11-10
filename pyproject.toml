@@ -18,7 +18,7 @@ dependencies = [
     "scikit-learn-extra>=0.3",
     "gudhi>=3.9",
     "persim>=0.3",
-    "matplotlib>=3.3",
+    "matplotlib>=3.4",
     "seaborn>=0.11",
     "tqdm>=4.6",
     "joblib>=1.3",
@@ -36,6 +36,7 @@ include = ["uav_tda*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: recomputes Wasserstein distances; skipped by default in CI fast lane"]
+faulthandler_timeout = 300
 
 [tool.ruff]
 line-length = 100

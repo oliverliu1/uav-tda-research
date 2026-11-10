@@ -1,0 +1,17 @@
+{
+  "artifact": "exact_binary_auc_pgfplots.tex",
+  "artifact_sha256": "06ddc471103a0eab8e59bae90734dcae416f81f697e9a17a1399788ffd171156",
+  "created_utc": "2026-11-10T05:31:25.434337+00:00",
+  "git_sha": "570e09330fbeafd9d631632fc9030e1e69ee518b",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "builder": "artifacts.emit_exact_binary_pgfplots",
+    "source": "exact/exact_binary_auc.csv (scoring=znorm)"
+  },
+  "uav_tda_version": "0.1.0"
+}

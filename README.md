@@ -56,7 +56,7 @@ as-published record rather than regenerated: `PROBE_RESULTS.md` (the
 published probe record the root `CLAUDE.md`'s number-provenance rule points
 at), `MULTI_SEED_VARIANCE.md`, and `C2_NORMALIZATION_DIAGNOSTIC.md`.
 
-Alongside those, five machine-generated reports under `paper/`, each built
+Alongside those, six machine-generated reports under `paper/`, each built
 from committed `results/tables/rebuild/*.csv`. **All pending author sign-off**
 — no number in any of them is yet approved for the manuscript:
 
@@ -70,6 +70,13 @@ from committed `results/tables/rebuild/*.csv`. **All pending author sign-off**
   approximation (Phase 4).
 - `paper/ZNORM_RESULTS.md` — clean-lineage Z-normalized-scoring reanalysis
   vs. raw scoring, 3 seeds (Phase 3).
+- `paper/MANUSCRIPT_ARTIFACTS.md` — full-path compute frontier (supersedes the
+  old 6.6x), unique window counts, measured FPR/TPR, and caption caveats;
+  built by `uav-tda artifacts` (Phase 8).
+
+The six manuscript figures (vector PDF, one `.provenance.json` sidecar each)
+are in `results/figures/manuscript/`; the superseded April 2026 PNGs are
+quarantined in `results/figures/legacy_2026-04/` and must not be used.
 
 ## Disk
 

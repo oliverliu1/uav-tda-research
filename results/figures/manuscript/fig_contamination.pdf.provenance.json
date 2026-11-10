@@ -1,0 +1,51 @@
+{
+  "artifact": "fig_contamination.pdf",
+  "artifact_sha256": "978bd43cbc0136023b0f94de7ae02ac9b84ca4e945e3e65004cd415411070b05",
+  "created_utc": "2026-11-10T05:31:26.368067+00:00",
+  "git_sha": "570e09330fbeafd9d631632fc9030e1e69ee518b",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "arm": "ordered",
+    "figure": "contamination",
+    "majority_class": "all",
+    "n_repeats": 10,
+    "source": "windowed/contamination_curve.csv",
+    "unique_n": {
+      "100": [
+        1,
+        29,
+        13,
+        9,
+        131
+      ],
+      "200": [
+        0,
+        13,
+        7,
+        7,
+        64
+      ],
+      "25": [
+        24,
+        100,
+        48,
+        35,
+        526
+      ],
+      "50": [
+        6,
+        51,
+        31,
+        17,
+        261
+      ]
+    },
+    "unique_n_rule": "pooled n_windows / n_repeats"
+  },
+  "uav_tda_version": "0.1.0"
+}

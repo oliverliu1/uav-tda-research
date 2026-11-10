@@ -1,0 +1,43 @@
+{
+  "artifact": "fig_attribution.pdf",
+  "artifact_sha256": "623d256e4f7d5a3a27b38d87570c862207e91352b65ccf62bc1e51bfe6a18c9b",
+  "created_utc": "2026-11-10T05:31:27.053444+00:00",
+  "git_sha": "570e09330fbeafd9d631632fc9030e1e69ee518b",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "colour_map": "PuOr_r, Normalize(0, 1) (centred at 0.5)",
+    "columns": [
+      "per_flow:c2",
+      "per_flow:network",
+      "per_flow:physical",
+      "25:c2",
+      "25:network",
+      "25:physical",
+      "50:c2",
+      "50:network",
+      "50:physical",
+      "100:c2",
+      "100:network",
+      "100:physical",
+      "200:c2",
+      "200:network",
+      "200:physical"
+    ],
+    "figure": "attribution",
+    "per_flow_value": "auc",
+    "rows": [
+      "Sybil Attack",
+      "Flooding Attack",
+      "Blackhole Attack",
+      "Wormhole Attack"
+    ],
+    "source": "exact/exact_per_attack_auc.csv + windowed/windowed_attribution.csv",
+    "windowed_value": "mean (10 runs)"
+  },
+  "uav_tda_version": "0.1.0"
+}

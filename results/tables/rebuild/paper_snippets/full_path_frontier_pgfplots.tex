@@ -1,0 +1,13 @@
+% source: windowed/compute_frontier.csv + latency_Olivers-MacBook-Pro.local.csv; x = full-path seconds per decision (latency harness, n=30)
+\addplot coordinates {
+    (3.58, 0.893) += (0, 0.007) -= (0, 0.008)
+    (0.00749, 0.869) += (0, 0.008) -= (0, 0.008)
+    (0.0266, 0.901) += (0, 0.010) -= (0, 0.010)
+    (0.116, 0.938) += (0, 0.010) -= (0, 0.011)
+    (0.604, 0.910) += (0, 0.019) -= (0, 0.021)
+};
+\node[font=\small, anchor=south] at (axis cs:3.58,0.900) {per-flow};
+\node[font=\small, anchor=south] at (axis cs:0.00749,0.877) {W=25};
+\node[font=\small, anchor=south] at (axis cs:0.0266,0.911) {W=50};
+\node[font=\small, anchor=south] at (axis cs:0.116,0.948) {W=100};
+\node[font=\small, anchor=south] at (axis cs:0.604,0.929) {W=200};

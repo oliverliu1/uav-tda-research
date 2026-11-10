@@ -170,6 +170,20 @@ def _cmd_latency(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_artifacts(args: argparse.Namespace) -> int:
+    """Phase 8: derive manuscript tables, snippets, figures and
+    `paper/MANUSCRIPT_ARTIFACTS.md` purely from committed rebuild CSVs.
+    """
+    from . import artifacts
+
+    ws = _workspace_for(args)
+    result = artifacts.generate_artifacts(ws.root, latency_host=args.latency_host)
+    for rel, source in result["inventory"]:
+        print(f"  {rel}  <-  {source}")
+    print(f"wrote {result['report']}")
+    return 0
+
+
 def _workspace_for(args: argparse.Namespace) -> Workspace:
     if getattr(args, "root", None):
         return Workspace.at(Path(args.root))
@@ -302,6 +316,16 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_args(p)
     p.add_argument("--n", type=int, default=30)
     p.set_defaults(func=_cmd_latency)
+
+    p = sub.add_parser("artifacts",
+                        help="Phase 8: manuscript figures/tables/snippets + "
+                             "MANUSCRIPT_ARTIFACTS.md from committed rebuild CSVs.")
+    p.add_argument("--root", type=str, default=None,
+                    help="Workspace root (default: repo root via Workspace.default()).")
+    p.add_argument("--latency-host", type=str, default=None,
+                    help="Select results/tables/rebuild/latency_<host>.csv when several "
+                         "latency summaries exist (default: the single one present).")
+    p.set_defaults(func=_cmd_artifacts)
 
     p = sub.add_parser("prep", help="Phase 2: data prep and splits.")
     _add_common_args(p)
