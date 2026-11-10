@@ -1,8 +1,8 @@
 {
   "artifact": "fig_detection_vs_w.pdf",
   "artifact_sha256": "90da1a0f8e8bd6f81fc4dcb60bdaf228b3fb813028da80a9cf6ba7cdca430402",
-  "created_utc": "2026-11-10T04:56:41.858919+00:00",
-  "git_sha": "be5497968c7b63c17d06ff166d94ab1925cd9096",
+  "created_utc": "2026-11-10T05:21:11.231553+00:00",
+  "git_sha": "d9fa20f05946d438f54cdd78390f25f3082b6d28",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",
@@ -14,6 +14,7 @@
     "exact_ref_source": "exact/exact_binary_auc.csv (all_three, znorm)",
     "figure": "detection_vs_w",
     "per_flow_auc": 0.8929525,
+    "per_flow_label": "per-flow (10-seed probe)",
     "per_flow_source": "windowed/compute_frontier.csv (per_flow auc_mean)",
     "source": "windowed/windowed_detection.csv",
     "w": [

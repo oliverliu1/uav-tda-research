@@ -1,8 +1,8 @@
 {
   "artifact": "full_path_frontier_pgfplots.tex",
   "artifact_sha256": "ba2736986648d602703a45d4f0d189e6b60f6ad74ecf43f2a784c1ea7cf82c7c",
-  "created_utc": "2026-11-10T04:56:41.133002+00:00",
-  "git_sha": "be5497968c7b63c17d06ff166d94ab1925cd9096",
+  "created_utc": "2026-11-10T05:21:10.472973+00:00",
+  "git_sha": "d9fa20f05946d438f54cdd78390f25f3082b6d28",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",

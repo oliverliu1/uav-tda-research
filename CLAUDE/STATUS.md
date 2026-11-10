@@ -54,7 +54,13 @@ attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attributio
 `results/figures/legacy_2026-04/`. Also closed: unique-vs-pooled window counts, missing sidecars
 (backfilled), eps-max values persisted. Caption caveats:
 
-- Wormhole at W=50 is an effective Network/Physical tie (CIs overlap); do not read it as resolved.
+- Four attribution cells are unresolved (dominant CI overlaps runner-up; derived scan in the
+  report): Flooding W=50 C2 0.6757 vs Network 0.6293; Wormhole W=50 Network 0.8140 vs Physical
+  0.8096; Flooding W=100 C2 0.7102 vs Network 0.6775; Flooding W=200 Network 0.7467 vs C2 0.6965.
+  Do not read these dominances as resolved.
+- Also in the report: windowed cost excludes scaler/slice + baseline setup (W=25 speedup is
+  upper-end); per-flow vs windowed AUC units differ (M2); contamination uses an empirical
+  near-normal threshold, not val-Normal Q95.
 - Per-flow attribution block is a single full-test estimate; windowed blocks are 10-run means.
 - Thinnest contamination bin is n=1 (W=100, bin 0); low power.
 

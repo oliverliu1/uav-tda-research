@@ -1,8 +1,8 @@
 {
   "artifact": "fig_attribution.pdf",
   "artifact_sha256": "623d256e4f7d5a3a27b38d87570c862207e91352b65ccf62bc1e51bfe6a18c9b",
-  "created_utc": "2026-11-10T04:56:42.852633+00:00",
-  "git_sha": "be5497968c7b63c17d06ff166d94ab1925cd9096",
+  "created_utc": "2026-11-10T05:21:12.173273+00:00",
+  "git_sha": "d9fa20f05946d438f54cdd78390f25f3082b6d28",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",

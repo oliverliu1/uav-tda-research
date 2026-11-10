@@ -1,8 +1,8 @@
 {
   "artifact": "fig_roc.pdf",
   "artifact_sha256": "b40e06ad40749ad83c76767c098be624a7eb2127bb27b325accb5030f6f84e9b",
-  "created_utc": "2026-11-10T04:56:43.233688+00:00",
-  "git_sha": "be5497968c7b63c17d06ff166d94ab1925cd9096",
+  "created_utc": "2026-11-10T05:21:12.524498+00:00",
+  "git_sha": "d9fa20f05946d438f54cdd78390f25f3082b6d28",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",
