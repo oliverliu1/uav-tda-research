@@ -1,4 +1,4 @@
-# Project Status — 2026-11-09
+# Project Status — 2026-11-10
 
 One page on where everything stands. Framing and decisions: `CLAUDE/PROJECT_BRIEF.md`.
 Manuscript audit (dated 2026-10-18 snapshot, not updated): `CLAUDE/MANUSCRIPT_READINESS_AUDIT.md`. Agent rules: root `CLAUDE.md`.
@@ -14,9 +14,10 @@ Human entry point: `README.md`.
   10-seed bootstrap campaign, the time-windowed variant, the full-test high-precision Wasserstein
   campaign, a portable latency harness, CI, lint, and legacy quarantine. No infrastructure work
   remains.
-- **Phase 8 (manuscript artifacts):** done on branch `feat/uav-tda-phase8` (`uav-tda artifacts`):
-  full-path frontier, unique window counts, operating points, six figures, three new snippets,
-  backfilled sidecars. Fast suite 145 passed / 0 skipped; ruff clean. Report:
+- **Phase 8 (manuscript artifacts):** merged to `main` (PR #19, after the audit/cleanup PR #18;
+  2026-11-10) (`uav-tda artifacts`): full-path frontier, unique window counts, operating points,
+  six figures, three new snippets, backfilled sidecars. Fast suite 162 passed / 0 skipped; ruff
+  clean; CI green (runner pinned to `ubuntu-24.04`). Report:
   `paper/MANUSCRIPT_ARTIFACTS.md`; figures: `results/figures/manuscript/`.
 
 ## Results package (all pending author sign-off)
@@ -71,7 +72,8 @@ attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attributio
 - Keep redistributing the third-party dataset in-repo, or untrack it.
 - Untrack `archive/poster_eda/node_modules` (3,981 files, 84% of tracked files).
 - Delete local `outputs/` (32 GB; ~10 GB disk free) or keep it for re-runs.
-- Drop the April 2026 stash (pins ~1.3 GB of leakage-era blobs) and prune five stale worktrees.
+- Drop the April 2026 stash (pins ~1.3 GB of leakage-era blobs). (Stale worktrees and merged
+  branches were pruned 2026-11-10; only `main` remains.)
 - Replace or delete `requirements.txt` (its pins would break the pinned environment).
 - Run a companion-board latency measurement before December, or reword the promise.
 
