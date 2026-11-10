@@ -319,3 +319,100 @@ def test_emit_exact_binary_pgfplots_golden_string():
         + node + "(axis cs:All three,0.946) {0.91};"
     )
     assert artifacts.emit_exact_binary_pgfplots(pd.DataFrame(rows), scoring="znorm") == expected
+
+
+# ---------------------------------------------------------------------------
+# Final fix wave
+# ---------------------------------------------------------------------------
+
+
+def test_find_latency_summary_selects_named_host(tmp_path):
+    rebuild = _synthetic_rebuild(tmp_path)
+    (rebuild / "latency_otherhost.csv").write_text(_LATENCY_SUMMARY_CSV)
+    assert artifacts.find_latency_summary(rebuild, host="otherhost") == \
+        rebuild / "latency_otherhost.csv"
+    assert artifacts.find_latency_summary(rebuild, host="somehost") == \
+        rebuild / "latency_somehost.csv"
+    with pytest.raises(ValueError, match="nohost"):
+        artifacts.find_latency_summary(rebuild, host="nohost")
+
+
+def test_find_latency_summary_ambiguous_error_names_candidates(tmp_path):
+    rebuild = _synthetic_rebuild(tmp_path)
+    (rebuild / "latency_otherhost.csv").write_text(_LATENCY_SUMMARY_CSV)
+    with pytest.raises(ValueError) as exc:
+        artifacts.find_latency_summary(rebuild)
+    msg = str(exc.value)
+    assert "latency_otherhost.csv" in msg and "latency_somehost.csv" in msg
+    assert "--latency-host" in msg
+    # Single summary: unchanged behaviour without a host.
+    (rebuild / "latency_otherhost.csv").unlink()
+    assert artifacts.find_latency_summary(rebuild) == rebuild / "latency_somehost.csv"
+
+
+def test_persist_eps_max_keeps_differing_committed_copy(tmp_path, caplog):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    (outputs / "max_edge_lengths.json").write_text(json.dumps({"c2": 9.0}))
+    rebuild = tmp_path / "rebuild"
+    dest = rebuild / "artifacts" / "max_edge_lengths.json"
+    dest.parent.mkdir(parents=True)
+    committed = json.dumps({"c2": 1.0})
+    dest.write_text(committed)
+
+    with caplog.at_level("WARNING"):
+        out = artifacts.persist_eps_max(outputs, rebuild)
+
+    assert out == dest
+    assert dest.read_text() == committed
+    assert "differs" in caplog.text
+
+
+def _wa(w, attack, manifold, mean, lo, hi, dominant):
+    return {"w": w, "attack_class": attack, "manifold": manifold, "mean": mean, "std": 0.0,
+            "ci_lo": lo, "ci_hi": hi, "dominant": dominant, "n_runs": 10}
+
+
+def test_unresolved_attributions_synthetic_reports_only_overlapping_blocks():
+    wa = pd.DataFrame([
+        # W=25: C2 dominant (flag), runner-up Physical overlaps -> unresolved.
+        _wa(25, "Sybil Attack", "c2", 0.80, 0.75, 0.85, True),
+        _wa(25, "Sybil Attack", "network", 0.40, 0.35, 0.45, False),
+        _wa(25, "Sybil Attack", "physical", 0.78, 0.73, 0.83, False),
+        # W=50: separated -> resolved.
+        _wa(50, "Sybil Attack", "c2", 0.90, 0.88, 0.92, True),
+        _wa(50, "Sybil Attack", "network", 0.40, 0.35, 0.45, False),
+        _wa(50, "Sybil Attack", "physical", 0.70, 0.68, 0.72, False),
+    ])
+    ex = pd.DataFrame([
+        _pa("Sybil Attack", "c2", 0.6, 0.59, 0.61, False),
+        _pa("Sybil Attack", "network", 0.9, 0.89, 0.91, True),
+        _pa("Sybil Attack", "physical", 0.2, 0.19, 0.21, False),
+    ])
+    out = artifacts.unresolved_attributions(wa, ex)
+    assert len(out) == 1
+    r = out.iloc[0]
+    assert r["attack_class"] == "Sybil Attack" and r["block"] == "W=25"
+    assert r["dominant"] == "c2" and r["runner_up"] == "physical"
+    assert r["dominant_auc"] == 0.80 and r["runner_up_auc"] == 0.78
+    assert r["difference"] == pytest.approx(0.02)
+
+    # Per-flow overlap is scanned too.
+    ex.loc[ex["manifold"] == "c2", ["auc", "ci_lo", "ci_hi"]] = [0.88, 0.87, 0.895]
+    out = artifacts.unresolved_attributions(wa, ex)
+    assert list(out["block"]) == ["per-flow", "W=25"]
+
+
+def test_unresolved_attributions_committed_data():
+    rebuild = artifacts.DEFAULT_REBUILD_DIR
+    out = artifacts.unresolved_attributions(
+        pd.read_csv(rebuild / "windowed" / "windowed_attribution.csv"),
+        pd.read_csv(rebuild / "exact" / "exact_per_attack_auc.csv"))
+    got = {(r["attack_class"], r["block"], r["dominant"], r["runner_up"])
+           for _, r in out.iterrows()}
+    assert got == {
+        ("Wormhole Attack", "W=50", "network", "physical"),
+        ("Flooding Attack", "W=50", "c2", "network"),
+        ("Flooding Attack", "W=100", "c2", "network"),
+        ("Flooding Attack", "W=200", "network", "c2"),
+    }

@@ -333,3 +333,54 @@ def test_save_closes_figure_when_savefig_fails(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError):
         figures._save(fig, tmp_path / "x.pdf", {})
     assert not plt.fignum_exists(num)
+
+
+# ---------------------------------------------------------------------------
+# Final fix wave: derived run counts
+# ---------------------------------------------------------------------------
+
+
+def test_fig_frontier_and_detection_label_derive_seed_count(tmp_path):
+    out = figures.fig_frontier(_frontier_df(), 0.908, tmp_path / "f.pdf", per_flow_n_runs=7)
+    assert _sidecar(out)["params"]["per_flow_label"] == "per-flow (7-seed probe)"
+    out = figures.fig_detection_vs_w(_detection_df(), 0.893, 0.908, tmp_path / "d.pdf",
+                                     per_flow_n_runs=7)
+    assert _sidecar(out)["params"]["per_flow_label"] == "per-flow (7-seed probe)"
+
+
+def test_fig_attribution_windowed_value_derives_run_count(tmp_path):
+    wa = _windowed_attribution_df()
+    wa["n_runs"] = 4
+    out = figures.fig_attribution(_exact_per_attack_df(), wa, tmp_path / "a.pdf")
+    assert _sidecar(out)["params"]["windowed_value"] == "mean (4 runs)"
+
+
+def test_fig_contamination_accepts_per_w_repeats(tmp_path):
+    df = _contamination_df()
+    sel = (df["arm"] == "ordered") & (df["majority_class"] == "all") & (df["w"] == 25)
+    df.loc[sel, "n_windows"] = df.loc[sel, "n_windows"] // 10 * 5
+    reps = {25: 5, 50: 10, 100: 10, 200: 10}
+    out = figures.fig_contamination(df, tmp_path / "c.pdf", n_repeats=reps)
+    params = _sidecar(out)["params"]
+    assert params["unique_n"]["25"] == [7, 14, 21, 28, 35]
+    assert params["n_repeats"] == {"25": 5, "50": 10, "100": 10, "200": 10}
+
+
+def test_build_all_figures_passes_derived_counts(tmp_path, monkeypatch):
+    from uav_tda import artifacts
+
+    seen = {}
+    real = figures.fig_contamination
+
+    def spy(*a, **kw):
+        seen["n_repeats"] = kw.get("n_repeats")
+        return real(*a, **kw)
+
+    monkeypatch.setattr(figures, "fig_contamination", spy)
+    paths = figures.build_all_figures(REBUILD, tmp_path / "m")
+    uw = artifacts.unique_window_counts(REBUILD)
+    assert seen["n_repeats"] == int(uw["n_repeats"].iloc[0])
+    cf = pd.read_csv(REBUILD / "windowed" / "compute_frontier.csv", dtype={"row": str})
+    n = int(cf.loc[cf["row"] == "per_flow", "n_runs"].iloc[0])
+    for name in ("frontier", "detection_vs_w"):
+        assert _sidecar(paths[name])["params"]["per_flow_label"] == f"per-flow ({n}-seed probe)"

@@ -62,3 +62,22 @@ def test_write_provenance_skip_if_unchanged_rewrites_on_change(tmp_path: Path):
     assert json.loads(side.read_text())["artifact_sha256"] != sha1
     write_provenance(target, {"a": 2}, skip_if_unchanged=True)
     assert json.loads(side.read_text())["params"] == {"a": 2}
+
+
+def test_run_git_passes_timeout_and_falls_back_on_timeout(monkeypatch):
+    import subprocess
+
+    from uav_tda import provenance
+
+    calls = []
+
+    def fake(cmd, **kw):
+        calls.append((cmd[0], kw.get("timeout")))
+        if cmd[0] == "first":
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+        return b"ok\n"
+
+    monkeypatch.setattr(provenance, "_GIT_CANDIDATES", ("first", "second"))
+    monkeypatch.setattr(provenance.subprocess, "check_output", fake)
+    assert provenance.run_git(["status"]) == "ok"
+    assert calls == [("first", 30), ("second", 30)]

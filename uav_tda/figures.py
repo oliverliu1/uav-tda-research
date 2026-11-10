@@ -117,20 +117,30 @@ def _w_label(w) -> str:
     return f"W={int(w)}"
 
 
+def _per_flow_label(per_flow_n_runs) -> str:
+    """Legend label for the per-flow probe reference; the seed count is derived, never typed."""
+    if per_flow_n_runs is None:
+        return "per-flow (probe)"
+    return f"per-flow ({int(per_flow_n_runs)}-seed probe)"
+
+
 # ---------------------------------------------------------------------------
 # Step 1: frontier
 # ---------------------------------------------------------------------------
 
 
 def fig_frontier(frontier: pd.DataFrame, exact_ref_auc: float, out_path,
-                 source: str = artifacts.DEFAULT_FRONTIER_SOURCE) -> Path:
+                 source: str = artifacts.DEFAULT_FRONTIER_SOURCE,
+                 per_flow_n_runs=None) -> Path:
     """Log-x full-path cost per decision vs znorm all-three AUC (bootstrap CIs).
 
     ``frontier`` is `artifacts.build_full_path_frontier` output; the
     per-flow row gets a distinct marker. ``exact_ref_auc`` (the exact
     full-test all-three znorm AUC) is a dashed horizontal reference, not a
-    frontier point.
+    frontier point. ``per_flow_n_runs`` (the probe's seed count, from
+    ``compute_frontier.csv``) names the per-flow legend entry.
     """
+    pf_label = _per_flow_label(per_flow_n_runs)
     pf = frontier[frontier["row"] == "per_flow"]
     win = frontier[frontier["row"] != "per_flow"].sort_values("w")
     with _style():
@@ -146,7 +156,7 @@ def fig_frontier(frontier: pd.DataFrame, exact_ref_auc: float, out_path,
                     label="windowed (ordered)", zorder=3)
         ax.errorbar(pf["cost_s"], pf["auc_mean"], yerr=_err(pf), fmt="s",
                     color=ARM_COLORS["per_flow"], capsize=2, elinewidth=0.8, ms=5,
-                    label="per-flow (10-seed probe)", zorder=3)
+                    label=pf_label, zorder=3)
         for _, r in win.iterrows():
             ax.annotate(_w_label(r["w"]), (r["cost_s"], r["auc_ci_hi"]),
                         xytext=(0, 2), textcoords="offset points", ha="center", va="bottom",
@@ -166,6 +176,7 @@ def fig_frontier(frontier: pd.DataFrame, exact_ref_auc: float, out_path,
         "exact_ref_auc": float(exact_ref_auc),
         "rows": [str(r) for r in frontier["row"]],
         "x": "cost_s (latency-harness full-path total_s mean)",
+        "per_flow_label": pf_label,
     })
 
 
@@ -175,8 +186,13 @@ def fig_frontier(frontier: pd.DataFrame, exact_ref_auc: float, out_path,
 
 
 def fig_detection_vs_w(detection: pd.DataFrame, per_flow_auc: float, exact_ref_auc: float,
-                       out_path, source: str = "windowed/windowed_detection.csv") -> Path:
-    """Znorm all-three AUC vs W (log2 x), ordered vs shuffled with CI bands."""
+                       out_path, source: str = "windowed/windowed_detection.csv",
+                       per_flow_n_runs=None) -> Path:
+    """Znorm all-three AUC vs W (log2 x), ordered vs shuffled with CI bands.
+
+    ``per_flow_n_runs`` (the probe's seed count) names the per-flow reference line.
+    """
+    pf_label = _per_flow_label(per_flow_n_runs)
     sel = detection[(detection["subset"] == "all_three") & (detection["scoring"] == "znorm")]
     ws = sorted(int(w) for w in sel["w"].unique())
     with _style():
@@ -187,7 +203,7 @@ def fig_detection_vs_w(detection: pd.DataFrame, per_flow_auc: float, exact_ref_a
             ax.fill_between(d["w"], d["ci_lo"], d["ci_hi"], color=c, alpha=0.25, lw=0)
             ax.plot(d["w"], d["mean"], "o-", color=c, label=f"windowed, {arm}")
         ax.axhline(per_flow_auc, color=ARM_COLORS["per_flow"], ls="-.", lw=0.8,
-                   label="per-flow (10-seed probe)")
+                   label=pf_label)
         ax.axhline(exact_ref_auc, color=ARM_COLORS["exact"], ls="--", lw=0.8,
                    label=EXACT_REF_LABEL)
         ax.axhline(0.5, color="#BBBBBB", ls=":", lw=0.6)
@@ -206,6 +222,7 @@ def fig_detection_vs_w(detection: pd.DataFrame, per_flow_auc: float, exact_ref_a
         "exact_ref_source": "exact/exact_binary_auc.csv (all_three, znorm)",
         "per_flow_auc": float(per_flow_auc), "exact_ref_auc": float(exact_ref_auc),
         "w": ws,
+        "per_flow_label": pf_label,
     })
 
 
@@ -214,21 +231,29 @@ def fig_detection_vs_w(detection: pd.DataFrame, per_flow_auc: float, exact_ref_a
 # ---------------------------------------------------------------------------
 
 
-def fig_contamination(contamination: pd.DataFrame, out_path, n_repeats: int = 10,
+def fig_contamination(contamination: pd.DataFrame, out_path, n_repeats=10,
                       source: str = "windowed/contamination_curve.csv") -> Path:
     """Detection rate vs attack-fraction bin, one panel per W (ordered arm, all classes).
 
     ``n_windows`` in the CSV is pooled over ``n_repeats`` ordered repeats
     whose window membership is identical, so the annotated unique n per bin
-    is ``n_windows / n_repeats`` (must divide exactly).
+    is ``n_windows / n_repeats`` (must divide exactly). ``n_repeats`` is an
+    int (same for every W) or a ``{W: n}`` mapping; `build_all_figures`
+    passes the counts derived by `artifacts.unique_window_counts`.
     """
     sel = contamination[(contamination["arm"] == "ordered")
                         & (contamination["majority_class"] == "all")].copy()
-    if (sel["n_windows"] % n_repeats != 0).any():
-        bad = sel.loc[sel["n_windows"] % n_repeats != 0, ["w", "bin", "n_windows"]]
+    if isinstance(n_repeats, dict):
+        reps = sel["w"].map(lambda w: int(n_repeats[int(w)]))
+        reps_param = {str(int(w)): int(n) for w, n in sorted(n_repeats.items())}
+    else:
+        reps = pd.Series(int(n_repeats), index=sel.index)
+        reps_param = int(n_repeats)
+    if (sel["n_windows"] % reps != 0).any():
+        bad = sel.loc[sel["n_windows"] % reps != 0, ["w", "bin", "n_windows"]]
         raise ValueError(f"pooled n_windows not divisible by n_repeats={n_repeats}:\n{bad}")
     sel["mid"] = (sel["bin_lo"] + sel["bin_hi"]) / 2
-    sel["unique_n"] = (sel["n_windows"] // n_repeats).astype(int)
+    sel["unique_n"] = (sel["n_windows"] // reps).astype(int)
     ws = sorted(int(w) for w in sel["w"].unique())
 
     unique_n = {}
@@ -257,7 +282,7 @@ def fig_contamination(contamination: pd.DataFrame, out_path, n_repeats: int = 10
                       fontsize=BASE_FONT_PT)
     return _save(fig, out_path, {
         "figure": "contamination", "source": source, "arm": "ordered",
-        "majority_class": "all", "n_repeats": int(n_repeats),
+        "majority_class": "all", "n_repeats": reps_param,
         "unique_n_rule": "pooled n_windows / n_repeats", "unique_n": unique_n,
     })
 
@@ -356,6 +381,9 @@ def fig_attribution(exact_per_attack: pd.DataFrame, windowed_attribution: pd.Dat
     Diverging colour map centred at 0.5 so anti-correlated (AUC<0.5) cells
     read as such; the dominant manifold per (attack, block) is outlined.
     """
+    run_counts = sorted(int(n) for n in windowed_attribution["n_runs"].unique())
+    windowed_value = (f"mean ({run_counts[0]} runs)" if len(run_counts) == 1
+                      else f"mean ({'/'.join(str(n) for n in run_counts)} runs)")
     ws = sorted(int(w) for w in windowed_attribution["w"].unique())
     blocks = [("per_flow", exact_per_attack.rename(columns={"auc": "value"}))]
     for w in ws:
@@ -416,7 +444,7 @@ def fig_attribution(exact_per_attack: pd.DataFrame, windowed_attribution: pd.Dat
         cb.outline.set_linewidth(0.4)
     return _save(fig, out_path, {
         "figure": "attribution", "source": source, "rows": rows, "columns": columns,
-        "per_flow_value": "auc", "windowed_value": "mean (10 runs)",
+        "per_flow_value": "auc", "windowed_value": windowed_value,
         "colour_map": "PuOr_r, Normalize(0, 1) (centred at 0.5)",
     })
 
@@ -496,11 +524,13 @@ FIGURE_FILES = {
 }
 
 
-def build_all_figures(rebuild_dir=None, out_dir=None) -> dict:
+def build_all_figures(rebuild_dir=None, out_dir=None, latency_host=None) -> dict:
     """Load the committed rebuild CSVs and render every manuscript figure.
 
     Returns ``{name: pdf_path}``. ``out_dir`` defaults to
-    ``results/figures/manuscript/``.
+    ``results/figures/manuscript/``. Run/repeat counts shown in labels are
+    derived from the CSVs (probe seeds from ``compute_frontier.csv``,
+    ordered repeats from `artifacts.unique_window_counts`).
     """
     rebuild = artifacts._rebuild(rebuild_dir)
     out = Path(out_dir) if out_dir is not None else FIGURES_DIR / "manuscript"
@@ -510,21 +540,28 @@ def build_all_figures(rebuild_dir=None, out_dir=None) -> dict:
     exact_bin = pd.read_csv(exact_dir / "exact_binary_auc.csv")
     ref = exact_bin[(exact_bin["subset"] == "all_three") & (exact_bin["scoring"] == "znorm")]
     exact_ref_auc = float(ref["auc"].iloc[0])
-    frontier = artifacts.build_full_path_frontier(rebuild)
+    frontier = artifacts.build_full_path_frontier(rebuild, latency_host=latency_host)
     per_flow_auc = float(frontier.loc[frontier["row"] == "per_flow", "auc_mean"].iloc[0])
-    latency_path = artifacts.find_latency_summary(rebuild)
+    cf = pd.read_csv(windowed_dir / "compute_frontier.csv", dtype={"row": str})
+    per_flow_n_runs = int(cf.loc[cf["row"] == "per_flow", "n_runs"].iloc[0])
+    reps = artifacts.unique_window_counts(rebuild).set_index("w")["n_repeats"]
+    n_repeats = (int(reps.iloc[0]) if reps.nunique() == 1
+                 else {int(w): int(n) for w, n in reps.items()})
+    latency_path = artifacts.find_latency_summary(rebuild, host=latency_host)
     latency = pd.read_csv(latency_path)
 
     paths = {
         "frontier": fig_frontier(
             frontier, exact_ref_auc, out / FIGURE_FILES["frontier"],
-            source=f"windowed/compute_frontier.csv + {latency_path.name}"),
+            source=f"windowed/compute_frontier.csv + {latency_path.name}",
+            per_flow_n_runs=per_flow_n_runs),
         "detection_vs_w": fig_detection_vs_w(
             pd.read_csv(windowed_dir / "windowed_detection.csv"), per_flow_auc,
-            exact_ref_auc, out / FIGURE_FILES["detection_vs_w"]),
+            exact_ref_auc, out / FIGURE_FILES["detection_vs_w"],
+            per_flow_n_runs=per_flow_n_runs),
         "contamination": fig_contamination(
             pd.read_csv(windowed_dir / "contamination_curve.csv", dtype={"bin": str}),
-            out / FIGURE_FILES["contamination"]),
+            out / FIGURE_FILES["contamination"], n_repeats=n_repeats),
         "latency": fig_latency(latency, out / FIGURE_FILES["latency"],
                                source=latency_path.name),
         "attribution": fig_attribution(

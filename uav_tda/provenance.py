@@ -15,20 +15,22 @@ from . import __version__
 # can fail to load an arm64-only libxcrun; fall back to the Command Line
 # Tools git binary directly.
 _GIT_CANDIDATES = ("git", "/Library/Developer/CommandLineTools/usr/bin/git")
+GIT_TIMEOUT_S = 30
 
 
 def run_git(args, cwd=None) -> str:
     """Run ``git *args`` via the first working candidate binary; return stripped stdout.
 
-    ``cwd`` defaults to this package's directory. Raises the last error if
-    every candidate fails.
+    ``cwd`` defaults to this package's directory. Each call is bounded by
+    `GIT_TIMEOUT_S`; a timeout counts as that candidate failing. Raises the
+    last error if every candidate fails.
     """
     cwd = Path(__file__).parent if cwd is None else cwd
     last_exc: Exception = RuntimeError("no git candidate")
     for git in _GIT_CANDIDATES:
         try:
             return subprocess.check_output(
-                [git, *args], cwd=cwd, stderr=subprocess.DEVNULL,
+                [git, *args], cwd=cwd, stderr=subprocess.DEVNULL, timeout=GIT_TIMEOUT_S,
             ).decode().strip()
         except Exception as exc:
             last_exc = exc

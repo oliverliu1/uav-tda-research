@@ -177,7 +177,7 @@ def _cmd_artifacts(args: argparse.Namespace) -> int:
     from . import artifacts
 
     ws = _workspace_for(args)
-    result = artifacts.generate_artifacts(ws.root)
+    result = artifacts.generate_artifacts(ws.root, latency_host=args.latency_host)
     for rel, source in result["inventory"]:
         print(f"  {rel}  <-  {source}")
     print(f"wrote {result['report']}")
@@ -322,6 +322,9 @@ def build_parser() -> argparse.ArgumentParser:
                              "MANUSCRIPT_ARTIFACTS.md from committed rebuild CSVs.")
     p.add_argument("--root", type=str, default=None,
                     help="Workspace root (default: repo root via Workspace.default()).")
+    p.add_argument("--latency-host", type=str, default=None,
+                    help="Select results/tables/rebuild/latency_<host>.csv when several "
+                         "latency summaries exist (default: the single one present).")
     p.set_defaults(func=_cmd_artifacts)
 
     p = sub.add_parser("prep", help="Phase 2: data prep and splits.")

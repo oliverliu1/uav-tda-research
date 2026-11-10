@@ -133,3 +133,70 @@ def test_cli_artifacts_end_to_end_is_idempotent(tmp_path):
 
     assert cli.main(["artifacts", "--root", str(root)]) == 0
     assert _snapshot(root) == first
+
+
+# ---------------------------------------------------------------------------
+# Final fix wave
+# ---------------------------------------------------------------------------
+
+
+def test_report_lists_every_unresolved_attribution(frames):
+    text = artifacts.render_artifacts_report(frames, _inventory())
+    un = artifacts.unresolved_attributions(frames["windowed_attribution"],
+                                           frames["exact_per_attack"])
+    assert len(un) == 4
+    for _, r in un.iterrows():
+        line = next((ln for ln in text.splitlines()
+                     if ln.startswith(f"  - {r['attack_class'].replace(' Attack', '')} "
+                                      f"{r['block']}:")), None)
+        assert line is not None, (r["attack_class"], r["block"])
+        assert f"{r['dominant_auc']:.4f} [{r['dominant_ci_lo']:.4f}, " \
+               f"{r['dominant_ci_hi']:.4f}]" in line
+        assert f"{r['runner_up_auc']:.4f} [{r['runner_up_ci_lo']:.4f}, " \
+               f"{r['runner_up_ci_hi']:.4f}]" in line
+        assert f"difference {r['difference']:.4f}" in line
+    assert "4 attribution cells" in text
+
+
+def test_report_unresolved_attribution_zero_case(frames):
+    tweaked = dict(frames)
+    for key, val in (("windowed_attribution", "mean"), ("exact_per_attack", "auc")):
+        df = frames[key].copy()
+        df["ci_lo"] = df[val]
+        df["ci_hi"] = df[val]
+        tweaked[key] = df
+    text = artifacts.render_artifacts_report(tweaked, _inventory())
+    assert "No attribution cell" in text
+    assert "attribution cells" not in text
+
+
+def test_report_cost_scope_auc_units_and_threshold_caveats(frames):
+    text = artifacts.render_artifacts_report(frames, _inventory())
+    win = frames["frontier"][frames["frontier"]["row"] != "per_flow"]
+    lo, hi = win["baseline_setup_s"].min(), win["baseline_setup_s"].max()
+    assert f"{lo:.2f}–{hi:.2f} s" in text
+    assert "Rips + W2 only" in text and "upper-end" in text
+    assert "Unit caveat (M2)" in text and "window-level" in text
+    assert "contamination_curve.csv" in text and "near-normal" in text
+    for _, r in frames["unique_windows"].iterrows():
+        assert f"W={int(r['w'])}: {int(r['n_pure_normal'])}" in text
+
+
+def test_report_footer_describes_sidecar_fields(frames):
+    text = artifacts.render_artifacts_report(frames, _inventory())
+    footer = text.split("## 5.")[1]
+    assert "artifact_sha256" in footer and "introduced_in" in footer
+
+
+def test_cli_artifacts_threads_latency_host(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake(root, latency_host=None):
+        seen["host"] = latency_host
+        return {"inventory": [], "report": tmp_path / "r.md"}
+
+    monkeypatch.setattr(artifacts, "generate_artifacts", fake)
+    assert cli.main(["artifacts", "--root", str(tmp_path), "--latency-host", "h1"]) == 0
+    assert seen["host"] == "h1"
+    assert cli.main(["artifacts", "--root", str(tmp_path)]) == 0
+    assert seen["host"] is None

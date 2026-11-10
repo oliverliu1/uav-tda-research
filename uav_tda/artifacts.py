@@ -50,12 +50,14 @@ def _rebuild(rebuild_dir) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def find_latency_summary(rebuild_dir=None) -> Path:
-    """The single ``latency_*.csv`` whose header starts ``mode,w,stage``.
+def find_latency_summary(rebuild_dir=None, host=None) -> Path:
+    """The latency summary CSV: a ``latency_*.csv`` whose header starts ``mode,w,stage``.
 
     Per-mode detail files (``latency_<host>_{per_flow,w25,...}.csv``) carry
-    per-sample columns instead and are skipped. Raises ``ValueError`` unless
-    exactly one summary is present.
+    per-sample columns instead and are skipped. With ``host`` the summary
+    must be ``latency_<host>.csv``. Without it, exactly one summary must be
+    present; several raise ``ValueError`` naming them (pass ``host`` /
+    ``uav-tda artifacts --latency-host`` to choose).
     """
     rebuild = _rebuild(rebuild_dir)
     found = []
@@ -64,10 +66,19 @@ def find_latency_summary(rebuild_dir=None) -> Path:
             header = tuple(fh.readline().strip().split(","))
         if header[:3] == _LATENCY_SUMMARY_HEADER:
             found.append(p)
+    names = [p.name for p in found]
+    if host is not None:
+        hit = [p for p in found if p.name == f"latency_{host}.csv"]
+        if not hit:
+            raise ValueError(f"no latency summary CSV latency_{host}.csv (header "
+                             f"'mode,w,stage,...') in {rebuild}; summaries present: {names}")
+        return hit[0]
     if len(found) != 1:
+        hint = (" -- several hosts present; choose one with host=... "
+                "(CLI: --latency-host <host>)" if found else "")
         raise ValueError(
             f"expected exactly one latency summary CSV (header 'mode,w,stage,...') "
-            f"in {rebuild}, found {[p.name for p in found]}"
+            f"in {rebuild}, found {names}{hint}"
         )
     return found[0]
 
@@ -82,7 +93,7 @@ def _latency_stage(lat: pd.DataFrame, mode: str, w, stage: str) -> pd.Series:
     return hit.iloc[0]
 
 
-def build_full_path_frontier(rebuild_dir=None) -> pd.DataFrame:
+def build_full_path_frontier(rebuild_dir=None, latency_host=None) -> pd.DataFrame:
     """Like-for-like frontier: AUC vs full-path latency-harness cost per decision.
 
     One row for ``per_flow`` then one per windowed W (ascending). AUC
@@ -92,11 +103,13 @@ def build_full_path_frontier(rebuild_dir=None) -> pd.DataFrame:
     ``w2_only_per_flow_s`` (per-flow only) are the frontier CSV's
     ``marginal_s`` kept as labelled secondary columns. ``cost_n`` is the
     latency summary's sample count ``n`` for that row's ``total_s``.
+    ``latency_host`` selects ``latency_<host>.csv`` (see `find_latency_summary`).
     """
     rebuild = _rebuild(rebuild_dir)
     frontier = pd.read_csv(rebuild / "windowed" / "compute_frontier.csv",
                            dtype={"row": str}, float_precision="round_trip")
-    lat = pd.read_csv(find_latency_summary(rebuild), float_precision="round_trip")
+    lat = pd.read_csv(find_latency_summary(rebuild, host=latency_host),
+                      float_precision="round_trip")
 
     per_flow = frontier[frontier["row"] == _PER_FLOW_ROW]
     windowed = frontier[frontier["row"] != _PER_FLOW_ROW].sort_values("w")
@@ -281,6 +294,8 @@ def persist_eps_max(outputs_dir=None, rebuild_dir=None):
 
     Returns the destination path, or ``None`` (with a logged warning) when
     the source is absent -- ``outputs/`` is gitignored, so CI never has it.
+    A committed destination whose bytes differ from the source is never
+    overwritten: a warning is logged and the committed copy is kept.
     """
     src = Path(outputs_dir if outputs_dir is not None else OUTPUTS_DIR) / "max_edge_lengths.json"
     if not src.exists():
@@ -289,7 +304,11 @@ def persist_eps_max(outputs_dir=None, rebuild_dir=None):
     dest_dir = _rebuild(rebuild_dir) / ARTIFACTS_SUBDIR
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / "max_edge_lengths.json"
-    shutil.copyfile(src, dest)
+    if dest.exists() and dest.read_bytes() != src.read_bytes():
+        _log.warning("persist_eps_max: %s differs from %s; keeping the committed copy "
+                     "(not overwritten)", dest, src)
+    elif not dest.exists():
+        shutil.copyfile(src, dest)
     write_provenance(dest, {"source": "outputs/max_edge_lengths.json"}, skip_if_unchanged=True)
     return dest
 
@@ -411,14 +430,60 @@ REPORT_NAME = "MANUSCRIPT_ARTIFACTS.md"
 FULL_PATH_FRONTIER_SNIPPET = "full_path_frontier_pgfplots.tex"
 EXACT_ATTRIBUTION_SNIPPET = "exact_attribution_rows.tex"
 EXACT_BINARY_SNIPPET = "exact_binary_auc_pgfplots.tex"
-_TIE_ATTACK, _TIE_W = "Wormhole Attack", 50
+_MANIFOLD_NAMES = {"c2": "C2", "network": "Network", "physical": "Physical"}
+PER_FLOW_BLOCK = "per-flow"
+_UNRESOLVED_COLUMNS = ["attack_class", "block", "w", "dominant", "dominant_auc",
+                       "dominant_ci_lo", "dominant_ci_hi", "runner_up", "runner_up_auc",
+                       "runner_up_ci_lo", "runner_up_ci_hi", "difference"]
 
 
-def load_report_frames(rebuild_dir=None) -> dict:
+def unresolved_attributions(windowed_attribution: pd.DataFrame,
+                            exact_per_attack: pd.DataFrame) -> pd.DataFrame:
+    """Every attribution cell whose dominance is not CI-resolved.
+
+    Scans the per-flow exact block (``exact_per_attack_auc.csv``, value
+    ``auc``) and every windowed W block (``windowed_attribution.csv``, value
+    ``mean``) for every attack. The dominant manifold is the row flagged
+    ``dominant`` (exactly one per block/attack, else ``ValueError``); the
+    runner-up is the highest-valued other manifold. A cell is unresolved
+    when the dominant CI low <= the runner-up CI high (the CIs overlap).
+    ``difference`` = dominant value - runner-up value. Rows: per-flow
+    first, then W ascending; attacks in table row order.
+    """
+    blocks = [(PER_FLOW_BLOCK, np.nan, exact_per_attack, "auc")]
+    for w in sorted(int(w) for w in windowed_attribution["w"].unique()):
+        blocks.append((f"W={w}", float(w),
+                       windowed_attribution[windowed_attribution["w"] == w], "mean"))
+    rows = []
+    for block, w, df, val in blocks:
+        for attack in _ATTRIBUTION_ROW_ORDER:
+            sub = df[df["attack_class"] == attack]
+            if sub.empty:
+                continue
+            dom = sub[sub["dominant"].astype(bool)]
+            if len(dom) != 1:
+                raise ValueError(f"attribution block {block}, {attack}: expected exactly one "
+                                 f"dominant manifold, found {len(dom)}")
+            d = dom.iloc[0]
+            r = sub[~sub["dominant"].astype(bool)].sort_values(val, ascending=False).iloc[0]
+            if d["ci_lo"] <= r["ci_hi"]:
+                rows.append([attack, block, w, d["manifold"], float(d[val]), float(d["ci_lo"]),
+                             float(d["ci_hi"]), r["manifold"], float(r[val]), float(r["ci_lo"]),
+                             float(r["ci_hi"]), float(d[val] - r[val])])
+    return pd.DataFrame(rows, columns=_UNRESOLVED_COLUMNS)
+
+
+def _n_attribution_cells(windowed_attribution: pd.DataFrame,
+                         exact_per_attack: pd.DataFrame) -> int:
+    return (exact_per_attack["attack_class"].nunique()
+            + len(windowed_attribution[["w", "attack_class"]].drop_duplicates()))
+
+
+def load_report_frames(rebuild_dir=None, latency_host=None) -> dict:
     """Every frame `render_artifacts_report` formats numbers from (no writes)."""
     rebuild = _rebuild(rebuild_dir)
     return {
-        "frontier": build_full_path_frontier(rebuild),
+        "frontier": build_full_path_frontier(rebuild, latency_host=latency_host),
         "compute_frontier": pd.read_csv(rebuild / "windowed" / "compute_frontier.csv",
                                         dtype={"row": str}),
         "operating_points": operating_point_table(rebuild),
@@ -485,10 +550,31 @@ def render_artifacts_report(frames: dict, inventory) -> str:
     cf = frames["compute_frontier"]
     pf_seeds = int(cf.loc[cf["row"] == _PER_FLOW_ROW, "n_runs"].iloc[0])
 
-    tie = wa[(wa["w"] == _TIE_W) & (wa["attack_class"] == _TIE_ATTACK)].set_index("manifold")
-    net, phys = tie.loc["network"], tie.loc["physical"]
-    overlap = net["ci_lo"] <= phys["ci_hi"] and phys["ci_lo"] <= net["ci_hi"]
-    dom = "Network" if bool(net["dominant"]) else "Physical"
+    unresolved = unresolved_attributions(wa, frames["exact_per_attack"])
+    n_cells = _n_attribution_cells(wa, frames["exact_per_attack"])
+    if unresolved.empty:
+        tie_lines = [
+            f"- *Attribution dominance is CI-resolved:* No attribution cell (of {n_cells} "
+            f"attack × block cells, per-flow and every windowed W) has the dominant manifold's "
+            f"CI low at or below the runner-up's CI high."]
+    else:
+        k = len(unresolved)
+        tie_lines = [
+            f"- *Unresolved attributions:* in {k} attribution cell{'s' if k != 1 else ''} "
+            f"(of {n_cells} attack × block cells) the dominant manifold's CI low is at or below "
+            f"the runner-up's CI high (the CIs overlap), so the dominance marked in the "
+            f"attribution figure should not be read as a resolved attribution there:"]
+        for _, u in unresolved.iterrows():
+            tie_lines.append(
+                f"  - {u['attack_class'].replace(' Attack', '')} {u['block']}: dominant "
+                f"{_MANIFOLD_NAMES[u['dominant']]} {u['dominant_auc']:.4f} "
+                f"{_ci(u['dominant_ci_lo'], u['dominant_ci_hi'])} vs runner-up "
+                f"{_MANIFOLD_NAMES[u['runner_up']]} {u['runner_up_auc']:.4f} "
+                f"{_ci(u['runner_up_ci_lo'], u['runner_up_ci_hi'])} "
+                f"(difference {u['difference']:.4f})")
+    setup_lo, setup_hi = win["baseline_setup_s"].min(), win["baseline_setup_s"].max()
+    pure_normal = ", ".join(f"W={int(r['w'])}: {int(r['n_pure_normal'])}"
+                            for _, r in uw.sort_values("w").iterrows())
     thin = smallest_nonzero_contamination_bin(frames["contamination"], uw)
     uw_min = uw.sort_values("w").iloc[0]
 
@@ -524,12 +610,21 @@ def render_artifacts_report(frames: dict, inventory) -> str:
         "",
         "**Caption-level caveats.**",
         "",
-        f"- *{_TIE_ATTACK.replace(' Attack', '')} at W={_TIE_W} is effectively a tie:* "
-        f"Network {net['mean']:.4f} {_ci(net['ci_lo'], net['ci_hi'])} vs Physical "
-        f"{phys['mean']:.4f} {_ci(phys['ci_lo'], phys['ci_hi'])} "
-        f"(difference {abs(net['mean'] - phys['mean']):.4f}); the CIs "
-        f"{'overlap' if overlap else 'do NOT overlap'}, so the {dom} dominance marked in the "
-        f"attribution figure should not be read as a resolved attribution.",
+        *tie_lines,
+        f"- *Windowed cost scope:* the latency harness's windowed `total_s` covers "
+        f"Rips + W2 only; it excludes the scaler/slice stages and the one-time "
+        f"`baseline_setup_s` ({setup_lo:.2f}–{setup_hi:.2f} s across W), whereas the per-flow "
+        f"`total_s` includes scaler + slice. The W={int(w_min['w'])} "
+        f"{w_min['speedup_vs_per_flow']:.0f}× speedup is therefore an upper-end figure.",
+        "- *AUC units differ between arms:* per-flow AUC is flow-level, windowed AUC is "
+        "window-level (majority label). The frontier and detection-vs-W figures put both on "
+        "one axis, so cross-arm AUC comparisons are indicative, not like-for-like (see "
+        "\"Unit caveat (M2)\" in `paper/WINDOWED_RESULTS.md`).",
+        f"- *Two different thresholds:* the contamination figure's detection rate uses the "
+        f"empirical near-normal Q95 threshold computed per (W, arm) in "
+        f"`windowed/contamination_curve.csv`, not the val-Normal "
+        f"Q{OPERATING_QUANTILE * 100:.0f} threshold of §3. That reference population is tiny "
+        f"at large W (unique pure-Normal windows {pure_normal}; §4).",
         f"- *Attribution figure blocks are not like-for-like:* the per-flow block is a "
         f"single full-test estimate (`exact/exact_per_attack_auc.csv`), whereas each windowed "
         f"block is a {n_runs}-run mean (`windowed/windowed_attribution.csv`).",
@@ -602,11 +697,12 @@ def render_artifacts_report(frames: dict, inventory) -> str:
     L += _md_table(["artifact", "derived from"], [[f"`{p}`", s] for p, s in inventory])
     L += [
         "",
-        "Every generated artifact above (all but this report) has a `.provenance.json` "
-        "sidecar recording git SHA, params, library versions and a content SHA-256; a sidecar "
-        "is only rewritten when one of those changes. Backfilled sidecars sit next to "
-        "pre-existing files and record `backfilled: true` plus the introducing commit; the "
-        "data files themselves are untouched.",
+        "Every generated artifact above (all but this report and the backfilled sidecars) "
+        "has a `.provenance.json` sidecar recording git SHA, params, library versions and a "
+        "content SHA-256 (`artifact_sha256`); such a sidecar is only rewritten when one of "
+        "those changes. Backfilled sidecars sit next to pre-existing files and record "
+        "`backfilled: true` plus the introducing commit (`introduced_in`) instead of a "
+        "content hash; the data files themselves are untouched.",
         "",
         "## 6. Pending author sign-off",
         "",
@@ -632,15 +728,17 @@ def _write_text_artifact(path: Path, text: str, params: dict) -> Path:
     return path
 
 
-def generate_artifacts(root=None) -> dict:
+def generate_artifacts(root=None, latency_host=None) -> dict:
     """Write every Phase-8 artifact under workspace ``root`` (default: repo root).
 
     Tables -> ``results/tables/rebuild/artifacts/``; snippets ->
     ``results/tables/rebuild/paper_snippets/`` (new filenames only); figures ->
     ``results/figures/manuscript/``; report -> ``paper/MANUSCRIPT_ARTIFACTS.md``.
     Idempotent: data files are deterministic and sidecars are only rewritten
-    when their params, content hash or git SHA change. Returns
-    ``{"written": [Path, ...], "report": Path, "inventory": [(rel, source), ...]}``.
+    when their params, content hash or git SHA change. ``latency_host``
+    selects ``latency_<host>.csv`` when several latency summaries exist.
+    Returns ``{"report": Path, "inventory": [(rel, source), ...],
+    "backfilled": [sidecar Path written this call, ...]}``.
     """
     from . import figures  # local import: figures imports this module
 
@@ -649,10 +747,10 @@ def generate_artifacts(root=None) -> dict:
     art = rebuild / ARTIFACTS_SUBDIR
     snippets = rebuild / "paper_snippets"
     art.mkdir(parents=True, exist_ok=True)
-    latency_name = find_latency_summary(rebuild).name
+    latency_name = find_latency_summary(rebuild, host=latency_host).name
     frontier_src = f"windowed/compute_frontier.csv + {latency_name}"
 
-    frames = load_report_frames(rebuild)
+    frames = load_report_frames(rebuild, latency_host=latency_host)
     inventory = []
 
     def rel(p: Path) -> str:
@@ -700,7 +798,8 @@ def generate_artifacts(root=None) -> dict:
                                     {"source": source, "builder": builder})
         inventory.append((rel(path), source))
 
-    fig_paths = figures.build_all_figures(rebuild, root / "results" / "figures" / "manuscript")
+    fig_paths = figures.build_all_figures(rebuild, root / "results" / "figures" / "manuscript",
+                                          latency_host=latency_host)
     for name, path in fig_paths.items():
         meta = json.loads(path.with_name(path.name + ".provenance.json").read_text())
         inventory.append((rel(path), str(meta["params"].get("source", ""))))

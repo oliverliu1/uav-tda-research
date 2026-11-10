@@ -47,14 +47,16 @@ oracles), and the historical `paper/{PROBE_RESULTS,MULTI_SEED_VARIANCE,C2_NORMAL
 and `paper/historical/`.
 
 **Write zones:** `uav_tda/`, `tests/`, `docs/`, `paper/` (new docs only), `CLAUDE/`,
-`results/tables/rebuild/` (all new tables; every artifact gets a `.provenance.json` sidecar).
+`results/tables/rebuild/` (all new tables; every artifact gets a `.provenance.json` sidecar),
+`results/figures/manuscript/` (generated manuscript figures, each with a sidecar).
 Golden-master `metrics.py` functions and the probe default path must not change behavior.
 
 ## Scientific rules
 
 - **Number provenance:** every number cited anywhere must trace to a committed CSV or
   machine-generated doc. Current candidates: `paper/{EXACT,WINDOWED,LATENCY}_RESULTS.md`,
-  `paper/MANUSCRIPT_STATS.md`, `paper/ZNORM_RESULTS.md` — **all pending author sign-off**.
+  `paper/MANUSCRIPT_STATS.md`, `paper/ZNORM_RESULTS.md`, `paper/MANUSCRIPT_ARTIFACTS.md` —
+  **all pending author sign-off**.
 - **Canonical score** = val-Normal z-normalized **SUM** across manifolds (`metrics.apply_znorm`,
   `probe.run_probe_with_znorm`). `uav_tda/unsupervised.py` keeps the monolith's max-pool as a
   frozen port only. Val-stats and test scores must come from the same baseline realization.
