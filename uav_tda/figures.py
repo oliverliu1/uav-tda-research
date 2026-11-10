@@ -109,7 +109,7 @@ def _save(fig, out_path, params: dict) -> Path:
             fig.savefig(out, format="pdf", metadata=_PDF_METADATA)
     finally:
         plt.close(fig)
-    write_provenance(out, params)
+    write_provenance(out, params, skip_if_unchanged=True)
     return out
 
 
@@ -516,7 +516,9 @@ def build_all_figures(rebuild_dir=None, out_dir=None) -> dict:
     latency = pd.read_csv(latency_path)
 
     paths = {
-        "frontier": fig_frontier(frontier, exact_ref_auc, out / FIGURE_FILES["frontier"]),
+        "frontier": fig_frontier(
+            frontier, exact_ref_auc, out / FIGURE_FILES["frontier"],
+            source=f"windowed/compute_frontier.csv + {latency_path.name}"),
         "detection_vs_w": fig_detection_vs_w(
             pd.read_csv(windowed_dir / "windowed_detection.csv"), per_flow_auc,
             exact_ref_auc, out / FIGURE_FILES["detection_vs_w"]),

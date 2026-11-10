@@ -16,6 +16,7 @@ never as the cost.
 """
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 from pathlib import Path
@@ -289,7 +290,7 @@ def persist_eps_max(outputs_dir=None, rebuild_dir=None):
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / "max_edge_lengths.json"
     shutil.copyfile(src, dest)
-    write_provenance(dest, {"source": "outputs/max_edge_lengths.json"})
+    write_provenance(dest, {"source": "outputs/max_edge_lengths.json"}, skip_if_unchanged=True)
     return dest
 
 
@@ -400,3 +401,309 @@ def emit_exact_binary_pgfplots(df: pd.DataFrame, scoring: str = "znorm") -> str:
         )
     coord_lines.append("};")
     return "\n".join(coord_lines + node_lines)
+
+
+# ---------------------------------------------------------------------------
+# Task 3: generation driver + machine-generated MANUSCRIPT_ARTIFACTS report
+# ---------------------------------------------------------------------------
+
+REPORT_NAME = "MANUSCRIPT_ARTIFACTS.md"
+FULL_PATH_FRONTIER_SNIPPET = "full_path_frontier_pgfplots.tex"
+EXACT_ATTRIBUTION_SNIPPET = "exact_attribution_rows.tex"
+EXACT_BINARY_SNIPPET = "exact_binary_auc_pgfplots.tex"
+_TIE_ATTACK, _TIE_W = "Wormhole Attack", 50
+
+
+def load_report_frames(rebuild_dir=None) -> dict:
+    """Every frame `render_artifacts_report` formats numbers from (no writes)."""
+    rebuild = _rebuild(rebuild_dir)
+    return {
+        "frontier": build_full_path_frontier(rebuild),
+        "compute_frontier": pd.read_csv(rebuild / "windowed" / "compute_frontier.csv",
+                                        dtype={"row": str}),
+        "operating_points": operating_point_table(rebuild),
+        "unique_windows": unique_window_counts(rebuild),
+        "windowed_attribution": pd.read_csv(rebuild / "windowed" / "windowed_attribution.csv"),
+        "exact_per_attack": pd.read_csv(rebuild / "exact" / "exact_per_attack_auc.csv"),
+        "exact_binary": pd.read_csv(rebuild / "exact" / "exact_binary_auc.csv"),
+        "contamination": pd.read_csv(rebuild / "windowed" / "contamination_curve.csv",
+                                     dtype={"bin": str}),
+    }
+
+
+def smallest_nonzero_contamination_bin(contamination: pd.DataFrame,
+                                       unique_windows: pd.DataFrame) -> dict:
+    """Thinnest non-empty ordered-arm (all-classes) contamination bin, in UNIQUE windows.
+
+    ``contamination_curve.csv`` pools ``n_windows`` over the ordered repeats;
+    dividing by that W's ``n_repeats`` gives the unique count (see
+    `figures.fig_contamination`). Also returns the number of empty bins.
+    """
+    sel = contamination[(contamination["arm"] == "ordered")
+                        & (contamination["majority_class"] == "all")].copy()
+    reps = unique_windows.set_index("w")["n_repeats"]
+    sel["unique_n"] = [int(n) // int(reps.loc[int(w)]) for w, n in zip(sel["w"], sel["n_windows"])]
+    nonzero = sel[sel["unique_n"] > 0].sort_values(["unique_n", "w"])
+    r = nonzero.iloc[0]
+    return {"w": int(r["w"]), "bin": str(r["bin"]), "unique_n": int(r["unique_n"]),
+            "detection_rate": float(r["detection_rate"]),
+            "n_empty_bins": int((sel["unique_n"] == 0).sum()),
+            "empty_bins": [f"W={int(w)} bin {b}" for w, b in
+                           zip(sel.loc[sel["unique_n"] == 0, "w"],
+                               sel.loc[sel["unique_n"] == 0, "bin"])]}
+
+
+def _ci(lo, hi) -> str:
+    return f"[{lo:.4f}, {hi:.4f}]"
+
+
+def _md_table(header, rows) -> list:
+    out = ["| " + " | ".join(header) + " |",
+           "| " + " | ".join("---:" if i else "---" for i in range(len(header))) + " |"]
+    out += ["| " + " | ".join(str(c) for c in r) + " |" for r in rows]
+    return out
+
+
+def render_artifacts_report(frames: dict, inventory) -> str:
+    """Render `paper/MANUSCRIPT_ARTIFACTS.md`; every number is formatted from ``frames``.
+
+    ``inventory`` is a list of ``(repo-relative path, source description)``.
+    """
+    fr = frames["frontier"]
+    op = frames["operating_points"]
+    uw = frames["unique_windows"]
+    wa = frames["windowed_attribution"]
+    ex = frames["exact_binary"]
+
+    pf = fr[fr["row"] == _PER_FLOW_ROW].iloc[0]
+    win = fr[fr["row"] != _PER_FLOW_ROW].sort_values("w")
+    w_min = win.iloc[0]
+    old_ratio = pf["w2_only_per_flow_s"] / w_min["campaign_marginal_s"]
+    exact_ref = ex[(ex["subset"] == "all_three") & (ex["scoring"] == "znorm")].iloc[0]
+    canon = op[(op["subset"] == "all_three") & (op["scoring"] == "znorm")].iloc[0]
+    n_runs = int(wa["n_runs"].iloc[0])
+    cf = frames["compute_frontier"]
+    pf_seeds = int(cf.loc[cf["row"] == _PER_FLOW_ROW, "n_runs"].iloc[0])
+
+    tie = wa[(wa["w"] == _TIE_W) & (wa["attack_class"] == _TIE_ATTACK)].set_index("manifold")
+    net, phys = tie.loc["network"], tie.loc["physical"]
+    overlap = net["ci_lo"] <= phys["ci_hi"] and phys["ci_lo"] <= net["ci_hi"]
+    dom = "Network" if bool(net["dominant"]) else "Physical"
+    thin = smallest_nonzero_contamination_bin(frames["contamination"], uw)
+    uw_min = uw.sort_values("w").iloc[0]
+
+    L = [
+        "# MANUSCRIPT_ARTIFACTS: Phase-8 manuscript figures, tables and snippets",
+        "",
+        "_Generated by `uav-tda artifacts` (`uav_tda/artifacts.py`, `uav_tda/figures.py`) "
+        "purely from CSVs already committed under `results/tables/rebuild/`; no recompute, "
+        "no new science. Every number below is formatted from those frames at generation "
+        "time; this report makes no claims of its own beyond restating them._",
+        "",
+        "## 1. What this supersedes",
+        "",
+        f"- **Compute frontier.** The old frontier's \"{old_ratio:.1f}×\" "
+        f"(`paper/WINDOWED_RESULTS.md` §3: W2-only per-flow marginal "
+        f"{pf['w2_only_per_flow_s']:.4f} s ÷ W={int(w_min['w'])} campaign marginal "
+        f"{w_min['campaign_marginal_s']:.6f} s) is **superseded**: the per-flow figure excluded "
+        f"Rips construction. On the like-for-like full-path latency harness (n={int(pf['cost_n'])}), "
+        f"per-flow costs {pf['cost_s']:.4f} s per decision and W={int(w_min['w'])} costs "
+        f"{w_min['cost_s']:.6f} s per decision, a **{w_min['speedup_vs_per_flow']:.0f}×** "
+        f"per-decision speedup (one decision covers {int(w_min['flows_per_decision'])} flows). "
+        f"Per-flow AUC stays the Phase-4 {pf_seeds}-seed probe value {pf['auc_mean']:.4f}.",
+        f"- **Window counts.** `paper/WINDOWED_RESULTS.md` quoted window counts pooled over "
+        f"{int(uw_min['n_repeats'])} ordered repeats (e.g. W={int(uw_min['w'])}: "
+        f"{int(uw_min['pooled_n_windows'])} windows, {int(uw_min['pooled_n_blackhole_majority'])} "
+        f"Blackhole-majority); the repeats share window membership, so the unique population "
+        f"is {int(uw_min['n_windows'])} windows / {int(uw_min['n_blackhole_majority'])} "
+        f"Blackhole-majority (§4).",
+        f"- **FPR claim now measured.** At the val-Normal Q{OPERATING_QUANTILE * 100:.0f} "
+        f"threshold on the high-precision (δ≤0.01) full-test campaign, canonical z-norm "
+        f"all-three scoring gives test FPR {canon['fpr']:.4f} and TPR {canon['tpr']:.4f} "
+        f"(val exceedance {canon['val_fpr']:.4f}; §3).",
+        "",
+        "**Caption-level caveats.**",
+        "",
+        f"- *{_TIE_ATTACK.replace(' Attack', '')} at W={_TIE_W} is effectively a tie:* "
+        f"Network {net['mean']:.4f} {_ci(net['ci_lo'], net['ci_hi'])} vs Physical "
+        f"{phys['mean']:.4f} {_ci(phys['ci_lo'], phys['ci_hi'])} "
+        f"(difference {abs(net['mean'] - phys['mean']):.4f}); the CIs "
+        f"{'overlap' if overlap else 'do NOT overlap'}, so the {dom} dominance marked in the "
+        f"attribution figure should not be read as a resolved attribution.",
+        f"- *Attribution figure blocks are not like-for-like:* the per-flow block is a "
+        f"single full-test estimate (`exact/exact_per_attack_auc.csv`), whereas each windowed "
+        f"block is a {n_runs}-run mean (`windowed/windowed_attribution.csv`).",
+        f"- *Thin contamination bins:* the smallest non-empty ordered-arm bin is "
+        f"n={thin['unique_n']} unique windows (W={thin['w']}, bin {thin['bin']}, detection rate "
+        f"{thin['detection_rate']:.4f}); {thin['n_empty_bins']} bin(s) are empty "
+        f"({', '.join(thin['empty_bins']) if thin['empty_bins'] else 'none'}). "
+        f"Rates in thin bins are low-power.",
+        "",
+        "## 2. Full-path compute frontier",
+        "",
+        f"Source: `windowed/compute_frontier.csv` (AUC, bootstrap CI) + latency summary "
+        f"`total_s` (cost). Horizontal reference: full-test high-precision all-three z-norm "
+        f"AUC {exact_ref['auc']:.4f} {_ci(exact_ref['ci_lo'], exact_ref['ci_hi'])} "
+        f"(not a frontier point).",
+        "",
+    ]
+    rows = []
+    for _, r in pd.concat([fr[fr["row"] == _PER_FLOW_ROW], win]).iterrows():
+        is_pf = r["row"] == _PER_FLOW_ROW
+        rows.append([
+            "per-flow" if is_pf else f"W={int(r['w'])}",
+            f"{r['auc_mean']:.4f}", _ci(r["auc_ci_lo"], r["auc_ci_hi"]),
+            f"{r['cost_s']:.6f}", f"{r['cost_p95_s']:.6f}", f"{r['cost_per_flow_s']:.3e}",
+            f"{r['speedup_vs_per_flow']:.1f}×",
+            "–" if is_pf else f"{r['campaign_marginal_s']:.6f}",
+            f"{r['w2_only_per_flow_s']:.4f}" if is_pf else "–",
+            "–" if is_pf else f"{r['baseline_setup_s']:.2f}",
+        ])
+    L += _md_table(["row", "AUC", "95% CI", "cost s/decision (mean)", "cost p95 s",
+                    "cost s/flow", "speedup vs per-flow", "campaign marginal s",
+                    "W2-only per-flow s (old)", "baseline setup s"], rows)
+    L += [
+        "",
+        "## 3. Operating points (val-Normal Q95 threshold, full test)",
+        "",
+        f"Threshold τ = Q{OPERATING_QUANTILE * 100:.0f} of the val-Normal subset score; a test "
+        f"flow is flagged when its score > τ. n val-Normal = {int(canon['n_val_normal'])}, "
+        f"n test Normal = {int(canon['n_test_normal'])}, n test attack = "
+        f"{int(canon['n_test_attack'])}. Full 7-subset table: "
+        f"`results/tables/rebuild/artifacts/operating_points.csv`.",
+        "",
+    ]
+    tpr_cols = [_tpr_col(a) for a in ATTACK_CLASSES]
+    rows = []
+    for subset in ("all_three", "network_physical"):
+        for scoring in ("raw", "znorm"):
+            r = op[(op["subset"] == subset) & (op["scoring"] == scoring)].iloc[0]
+            rows.append([subset, scoring, f"{r['tau']:.4f}", f"{r['val_fpr']:.4f}",
+                         f"{r['fpr']:.4f}", f"{r['tpr']:.4f}"]
+                        + [f"{r[c]:.4f}" for c in tpr_cols])
+    L += _md_table(["subset", "scoring", "τ", "val FPR", "test FPR", "test TPR"]
+                   + [f"TPR {a.replace(' Attack', '')}" for a in ATTACK_CLASSES], rows)
+    L += [
+        "",
+        "## 4. Unique vs pooled window counts (ordered arm)",
+        "",
+        "Unique = `run_w{W}_ordered0.csv` (repeats share window membership and labels); "
+        "pooled = summed over every ordered repeat (the figures previously quoted).",
+        "",
+    ]
+    rows = [[int(r["w"]), int(r["n_windows"]), int(r["n_pure_normal"]),
+             int(r["n_blackhole_majority"]), int(r["n_repeats"]), int(r["pooled_n_windows"]),
+             int(r["pooled_n_pure_normal"]), int(r["pooled_n_blackhole_majority"])]
+            for _, r in uw.sort_values("w").iterrows()]
+    L += _md_table(["W", "unique windows", "unique pure-Normal", "unique Blackhole-majority",
+                    "repeats", "pooled windows", "pooled pure-Normal",
+                    "pooled Blackhole-majority"], rows)
+    L += ["", "## 5. Artifact inventory", ""]
+    L += _md_table(["artifact", "derived from"], [[f"`{p}`", s] for p, s in inventory])
+    L += [
+        "",
+        "Every generated artifact above (all but this report) has a `.provenance.json` "
+        "sidecar recording git SHA, params, library versions and a content SHA-256; a sidecar "
+        "is only rewritten when one of those changes. Backfilled sidecars sit next to "
+        "pre-existing files and record `backfilled: true` plus the introducing commit; the "
+        "data files themselves are untouched.",
+        "",
+        "## 6. Pending author sign-off",
+        "",
+        "Every number in this report and in the artifacts it lists is machine-generated from "
+        "committed CSVs and is **pending author sign-off** before use in the manuscript.",
+        "",
+    ]
+    return "\n".join(L)
+
+
+def write_artifacts_report(paper_dir, frames: dict, inventory) -> Path:
+    paper_dir = Path(paper_dir)
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    out = paper_dir / REPORT_NAME
+    out.write_text(render_artifacts_report(frames, inventory))
+    return out
+
+
+def _write_text_artifact(path: Path, text: str, params: dict) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    write_provenance(path, params, skip_if_unchanged=True)
+    return path
+
+
+def generate_artifacts(root=None) -> dict:
+    """Write every Phase-8 artifact under workspace ``root`` (default: repo root).
+
+    Tables -> ``results/tables/rebuild/artifacts/``; snippets ->
+    ``results/tables/rebuild/paper_snippets/`` (new filenames only); figures ->
+    ``results/figures/manuscript/``; report -> ``paper/MANUSCRIPT_ARTIFACTS.md``.
+    Idempotent: data files are deterministic and sidecars are only rewritten
+    when their params, content hash or git SHA change. Returns
+    ``{"written": [Path, ...], "report": Path, "inventory": [(rel, source), ...]}``.
+    """
+    from . import figures  # local import: figures imports this module
+
+    root = Path(root) if root is not None else REPO_ROOT
+    rebuild = root / "results" / "tables" / "rebuild"
+    art = rebuild / ARTIFACTS_SUBDIR
+    snippets = rebuild / "paper_snippets"
+    art.mkdir(parents=True, exist_ok=True)
+    latency_name = find_latency_summary(rebuild).name
+    frontier_src = f"windowed/compute_frontier.csv + {latency_name}"
+
+    frames = load_report_frames(rebuild)
+    inventory = []
+
+    def rel(p: Path) -> str:
+        return str(Path(p).relative_to(root))
+
+    def table(name, df, source, builder):
+        path = art / name
+        df.to_csv(path, index=False)
+        write_provenance(path, {"source": source, "builder": builder}, skip_if_unchanged=True)
+        inventory.append((rel(path), source))
+
+    table("full_path_frontier.csv", frames["frontier"], frontier_src,
+          "artifacts.build_full_path_frontier")
+    table("unique_window_counts.csv", frames["unique_windows"],
+          "windowed/run_w{W}_ordered*.csv", "artifacts.unique_window_counts")
+    table("operating_points.csv", frames["operating_points"],
+          "exact/shard_{val,test}_*.csv (exact.assemble_distances)",
+          "artifacts.operating_point_table")
+
+    eps = persist_eps_max(outputs_dir=root / "outputs", rebuild_dir=rebuild)
+    if eps is not None:
+        inventory.append((rel(eps), "outputs/max_edge_lengths.json (copied)"))
+
+    backfilled = backfill_sidecars(rebuild)
+    for side in sorted(rebuild.rglob("*.provenance.json")):
+        try:
+            meta = json.loads(side.read_text())
+        except ValueError:
+            continue
+        if isinstance(meta.get("params"), dict) and meta["params"].get("backfilled"):
+            inventory.append((rel(side), "backfilled sidecar (introduced_in "
+                              f"{meta['params'].get('introduced_in', 'unknown')[:12]})"))
+
+    snippet_specs = [
+        (FULL_PATH_FRONTIER_SNIPPET,
+         emit_full_path_frontier_pgfplots(frames["frontier"], source=frontier_src),
+         frontier_src, "artifacts.emit_full_path_frontier_pgfplots"),
+        (EXACT_ATTRIBUTION_SNIPPET, emit_exact_attribution_rows(frames["exact_per_attack"]),
+         "exact/exact_per_attack_auc.csv", "artifacts.emit_exact_attribution_rows"),
+        (EXACT_BINARY_SNIPPET, emit_exact_binary_pgfplots(frames["exact_binary"], "znorm"),
+         "exact/exact_binary_auc.csv (scoring=znorm)", "artifacts.emit_exact_binary_pgfplots"),
+    ]
+    for name, text, source, builder in snippet_specs:
+        path = _write_text_artifact(snippets / name, text + "\n",
+                                    {"source": source, "builder": builder})
+        inventory.append((rel(path), source))
+
+    fig_paths = figures.build_all_figures(rebuild, root / "results" / "figures" / "manuscript")
+    for name, path in fig_paths.items():
+        meta = json.loads(path.with_name(path.name + ".provenance.json").read_text())
+        inventory.append((rel(path), str(meta["params"].get("source", ""))))
+
+    report = write_artifacts_report(root / "paper", frames, inventory)
+    return {"report": report, "inventory": inventory, "backfilled": backfilled}

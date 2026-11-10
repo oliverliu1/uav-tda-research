@@ -1,6 +1,7 @@
 """Write a provenance sidecar next to every generated artifact."""
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from datetime import datetime, timezone
@@ -51,7 +52,15 @@ def _lib_versions() -> dict[str, str]:
     return out
 
 
-def write_provenance(target: Path, params: dict) -> Path:
+def write_provenance(target: Path, params: dict, skip_if_unchanged: bool = False) -> Path:
+    """Write ``<target>.provenance.json`` and return its path.
+
+    With ``skip_if_unchanged`` the sidecar also records ``artifact_sha256``
+    (the target's content hash), and an existing sidecar whose every field
+    except ``created_utc`` already matches (same params, content hash,
+    git_sha, library versions) is left untouched, so idempotent reruns are
+    byte-stable. Default behaviour (always rewrite, no hash) is unchanged.
+    """
     side = target.with_name(target.name + ".provenance.json")
     meta = {
         "artifact": target.name,
@@ -61,5 +70,18 @@ def write_provenance(target: Path, params: dict) -> Path:
         "library_versions": _lib_versions(),
         "uav_tda_version": __version__,
     }
+    if skip_if_unchanged:
+        meta["artifact_sha256"] = hashlib.sha256(Path(target).read_bytes()).hexdigest()
+        if side.exists():
+            try:
+                old = json.loads(side.read_text())
+            except ValueError:
+                old = None
+            new = json.loads(json.dumps(meta, sort_keys=True))
+            if isinstance(old, dict):
+                old.pop("created_utc", None)
+                new.pop("created_utc", None)
+                if old == new:
+                    return side
     side.write_text(json.dumps(meta, indent=2, sort_keys=True))
     return side
