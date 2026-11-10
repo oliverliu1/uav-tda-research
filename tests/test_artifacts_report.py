@@ -92,7 +92,12 @@ def _snapshot(root):
 
 def test_cli_artifacts_end_to_end_is_idempotent(tmp_path):
     root = tmp_path / "ws"
-    shutil.copytree(REBUILD, root / "results" / "tables" / "rebuild")
+    # Exclude the committed generated outputs (their sidecars pin a git_sha that
+    # legitimately differs from HEAD); the test starts from the pre-Phase-8 inputs.
+    shutil.copytree(REBUILD, root / "results" / "tables" / "rebuild",
+                    ignore=shutil.ignore_patterns(
+                        "artifacts", "full_path_frontier_pgfplots.tex*",
+                        "exact_attribution_rows.tex*", "exact_binary_auc_pgfplots.tex*"))
     (root / "outputs").mkdir(parents=True)
     (root / "outputs" / "max_edge_lengths.json").write_text(
         json.dumps({"c2": 0.5, "network": 0.1, "physical": 0.3}))
