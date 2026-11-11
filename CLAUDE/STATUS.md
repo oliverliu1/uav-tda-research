@@ -1,4 +1,4 @@
-# Project Status — 2026-11-10
+# Project Status — 2026-11-11
 
 One page on where everything stands. Framing and decisions: `CLAUDE/PROJECT_BRIEF.md`.
 Manuscript audit (dated 2026-10-18 snapshot, not updated): `CLAUDE/MANUSCRIPT_READINESS_AUDIT.md`. Agent rules: root `CLAUDE.md`.
@@ -68,14 +68,18 @@ attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attributio
 
 ## Open author decisions
 
-- Sign off (or amend) the six results docs (incl. `MANUSCRIPT_ARTIFACTS.md`); choose the per-flow headline estimand.
-- Keep redistributing the third-party dataset in-repo, or untrack it.
-- Untrack `archive/poster_eda/node_modules` (3,981 files, 84% of tracked files).
-- Delete local `outputs/` (32 GB; ~10 GB disk free) or keep it for re-runs.
-- Drop the April 2026 stash (pins ~1.3 GB of leakage-era blobs). (Stale worktrees and merged
-  branches were pruned 2026-11-10; only `main` remains.)
-- Replace or delete `requirements.txt` (its pins would break the pinned environment).
-- Run a companion-board latency measurement before December, or reword the promise.
+- Per-flow headline estimand: decided 2026-11-11, full-test δ≤0.01 AUC 0.9082; the 10-seed probe
+  0.8930 is used only where paired with the latency harness cost (frontier).
+- Companion-board latency run: decided to run (2026-11-11); hardware being chosen.
+- Cross-benchmark evaluation: decided, future work (reword the §V promise).
+
+Decided 2026-11-11: April stash dropped; `archive/poster_eda/node_modules` untracked
+(still in history); `outputs/` kept until submission; `requirements.txt` replaced with exact
+env pins; dataset stays in-repo under its ODbL license with attribution (`data/README.md`).
+Stale worktrees and merged branches were pruned 2026-11-10; only `main` remains.
+
+- Sign off (or amend) the six results docs (incl. `MANUSCRIPT_ARTIFACTS.md`).
+- `main.tex` rewrite (deferred until after sign-off).
 
 ## Regenerating anything
 
