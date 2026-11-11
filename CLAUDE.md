@@ -20,7 +20,7 @@ and 3-of-4 agreement with Zeng et al. (2025). Infrastructure work is complete (P
 anaconda Python 3.9.7 running under **Rosetta 2** on an Apple M1 Pro, 16 GB RAM, chronically
 memory-pressured, ~10 GB free disk. numpy 1.20.3, gudhi 3.11.0 (conda-only; PyPI resolves 3.10.1),
 scikit-learn 1.3.2. Install with `pip install -e ".[dev]"` (pyproject bounds are correct).
-**Do not use `requirements.txt`** — its pins would upgrade numpy/pandas past the working env.
+`requirements.txt` holds the exact pins of this env (for reproducing it, e.g. on a companion board); day-to-day install is still `pip install -e ".[dev]"`.
 No new runtime dependencies (e.g. POT) without an explicit decision.
 
 ## Commands

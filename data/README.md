@@ -24,9 +24,13 @@ for it (git does not re-ignore an already-tracked file). A fresh clone
 **does** include it. Verify any copy against the sha256 above before running
 anything (`uav-tda prep` and every downstream phase depend on it).
 
-Note: this is a third-party benchmark dataset (Zeng et al., IEEE CNS 2025);
-whether to continue redistributing it in this repository is an author
-decision — see the repository README.
+**License.** Third-party benchmark dataset (Zeng et al., IEEE CNS 2025),
+published by its authors with the license *"Database: Open Database,
+Contents: © Original Authors"*, i.e. the database is under the Open
+Database License (ODbL v1.0) and the rights in its individual contents
+remain with the original authors. It is redistributed here unmodified, with
+attribution to Zeng et al. (2025); cite their paper when using it. Any
+adapted database derived from it must also be shared under the ODbL.
 
 **No-timestamps caveat.** UAVIDS-2025 has no timestamp column — only
 `FlowID`, a sequential row index (dropped as a feature, since it carries no
