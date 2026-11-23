@@ -16,7 +16,7 @@ Human entry point: `README.md`.
   remains.
 - **Phase 8 (manuscript artifacts):** merged to `main` (PR #19, after the audit/cleanup PR #18;
   2026-11-10) (`uav-tda artifacts`): full-path frontier, unique window counts, operating points,
-  six figures, three new snippets, backfilled sidecars. Fast suite 171 passed / 0 skipped; ruff
+  six figures, three new snippets, backfilled sidecars. Fast suite 175 passed / 0 skipped; ruff
   clean; CI green (runner pinned to `ubuntu-24.04`). Report:
   `paper/MANUSCRIPT_ARTIFACTS.md`; figures: `results/figures/manuscript/`.
 
@@ -55,12 +55,14 @@ attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attributio
 `results/figures/legacy_2026-04/`. Also closed: unique-vs-pooled window counts, missing sidecars
 (backfilled), eps-max values persisted. Caption caveats:
 
-- Nine of 16 windowed attribution cells are unresolved (dominant CI overlaps runner-up; derived scan
+- Nine of 16 windowed attribution cells have overlapping CIs (conservative, not a paired test; scan
   in the report): Flooding and Wormhole at every W, Blackhole at W=200. Blackhole's dominant
   (Physical) CI also reaches AUC 0.5 at every W. Do not read these dominances as resolved.
 - Windowed CIs were corrected 2026-11-23 (shared-window bootstrap; the old ordered-arm CIs were about
   3x too narrow). W=100 is 0.9376 [0.900, 0.969], which overlaps the per-flow full-test CI, so
-  "windowing beats per-flow" is not established. Windows are still treated as independent.
+  "windowing beats per-flow" is not established. Adjacent windows are correlated (lag-1 0.44 to
+  0.70), so these CIs are still optimistic; block-10 bootstrap at W=100 is [0.874, 0.985].
+  The per-flow full-test CI has not been checked for the same dependence.
 - Also in the report: windowed cost is Rips + W2 (slicing inside W2) with no scaler stage
   (pre-scaled inputs; per-flow scaler ~2.51 ms) and no baseline setup, so the W=25 speedup is
   upper-end; per-flow vs windowed AUC units differ (M2); contamination uses an empirical Q95
