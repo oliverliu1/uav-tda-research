@@ -459,7 +459,6 @@ def _render_manuscript_stats(
         "resampling on multiclass label, 2.5th/97.5th percentile of the "
         "across-seed mean AUC over B replicates (`bootstrap_mean_auc_ci`)."
     )
-    lines.append("")
     lines.append(
         "- What a seed varies: the per-class sample of test flows, plus sparse-Rips noise in "
         "the C2/Network baselines. The 500-flow reference set is fixed across seeds, so these "
@@ -467,6 +466,7 @@ def _render_manuscript_stats(
         "test split, so their samples partly overlap; the CI treats them as independent and is "
         "therefore somewhat narrow as a statement about new data."
     )
+    lines.append("")
 
     # Section 2: binary AUC raw+znorm with CIs.
     lines.append("## 2. Binary AUC (Normal vs any attack), raw + znorm, with bootstrap CIs")
