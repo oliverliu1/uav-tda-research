@@ -97,13 +97,17 @@ def _cmd_windowed_report(args: argparse.Namespace) -> int:
     """Phase 5: ensure the windowed campaign, build tables, write CSVs + report.
 
     Ensures missing campaign runs (real, slow -- run sequentially, never in
-    tests), builds the four report tables + CSVs, then writes the
+    tests), builds the four report tables + CSVs (reusing the recorded
+    per-flow timing unless ``--retime``), then writes the
     windowed-frontier pgfplots snippet and `paper/WINDOWED_RESULTS.md`.
     """
     ws = _workspace_for(args)
     ws.ensure()
     windowed.run_missing_campaign(ws)
-    tables = windowed.build_windowed_tables(ws, B=args.bootstrap)
+    recorded = None if args.retime else windowed.committed_per_flow_seconds(ws)
+    tables = windowed.build_windowed_tables(
+        ws, B=args.bootstrap,
+        time_probe_fn=None if recorded is None else (lambda: recorded))
     paths = windowed.write_windowed_tables(ws, tables, B=args.bootstrap, bootstrap_seed=0)
     for name, path in paths.items():
         print(f"wrote {path}")
@@ -297,6 +301,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Phase 5: ensure the windowed campaign and build report tables.")
     _add_common_args(p)
     p.add_argument("--bootstrap", type=int, default=2000)
+    p.add_argument("--retime", action="store_true",
+                   help="Re-measure the per-flow probe time instead of reusing the recorded value.")
     p.set_defaults(func=_cmd_windowed_report)
 
     p = sub.add_parser("exact", help="Phase 6: sharded resumable high-precision (delta<=0.01) Wasserstein-2 campaign.")

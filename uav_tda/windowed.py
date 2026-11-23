@@ -544,26 +544,49 @@ def load_all_runs(ws: Workspace) -> list:
     return runs
 
 
+def _group_bootstrap_ci(arm: str, per_run: list, labels_per_run: list, window_keys: list,
+                        B: int, bootstrap_seed: int) -> tuple:
+    """CI of the across-run mean AUC, using the resampling the arm's design needs.
+
+    Ordered repeats score the SAME windows, so one resample per replicate is
+    shared by every run; resampling each repeat independently would count
+    the same windows once per repeat. Shuffled runs are different windows
+    per seed, so each is resampled on its own.
+    """
+    import numpy as np
+
+    from .manuscript import bootstrap_mean_auc_ci, bootstrap_shared_mean_auc_ci
+
+    if arm != "ordered":
+        return bootstrap_mean_auc_ci(per_run, B=B, bootstrap_seed=bootstrap_seed,
+                                     labels_per_seed=labels_per_run)
+    if not all(np.array_equal(window_keys[0], k) and np.array_equal(labels_per_run[0], lab)
+               for k, lab in zip(window_keys, labels_per_run)):
+        raise ValueError("ordered-arm repeats must contain the same windows")
+    return bootstrap_shared_mean_auc_ci(
+        per_run[0][0], [scores for _, scores in per_run], B=B,
+        bootstrap_seed=bootstrap_seed, labels=labels_per_run[0])
+
+
 # --- Detection table ---------------------------------------------------------
 
 def build_detection_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0):
     """Window-level binary (Normal-vs-any-attack) AUC, per W x arm x subset x scoring.
 
     Groups loaded runs by (w, arm); within each group, treats each run as
-    one "seed" in the `manuscript.bootstrap_mean_auc_ci` sense: per-run AUC
+    one realization: per-run AUC
     on ``y = majority_label != "Normal Traffic"`` vs. that run's
     ``W2_<subset>`` column (scoring="raw") or ``Z2_<subset>`` column
     (scoring="znorm"). mean/std (ddof=1) across runs; CI via
-    `bootstrap_mean_auc_ci` with ``labels_per_seed`` = each run's
-    `majority_label` array (stratified resampling, avoiding single-class
-    bootstrap replicates when a run has few attack windows). Columns: w,
+    `_group_bootstrap_ci` (shared resample for the ordered arm, per-run
+    resample for the shuffled arm), stratified on `majority_label` to avoid
+    single-class bootstrap replicates. Columns: w,
     arm, subset, scoring, mean, std, ci_lo, ci_hi, n_runs.
     """
     import numpy as np
     import pandas as pd
     from sklearn.metrics import roc_auc_score
 
-    from .manuscript import bootstrap_mean_auc_ci
     from .metrics import MANIFOLD_SUBSETS
 
     groups: dict = {}
@@ -574,9 +597,10 @@ def build_detection_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0)
     for (w, arm), group_runs in sorted(groups.items()):
         for subset in MANIFOLD_SUBSETS:
             for scoring, prefix in (("raw", "W2_"), ("znorm", "Z2_")):
-                per_run, labels_per_run, aucs = [], [], []
+                per_run, labels_per_run, window_keys, aucs = [], [], [], []
                 for r in group_runs:
                     df = r["window_df"]
+                    window_keys.append(df["start_pos"].to_numpy())
                     y = (df["majority_label"] != _NORMAL_LABEL).astype(int).to_numpy()
                     scores = df[f"{prefix}{subset}"].to_numpy()
                     per_run.append((y, scores))
@@ -585,9 +609,8 @@ def build_detection_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0)
                 aucs_arr = np.asarray(aucs, dtype=float)
                 mean = float(aucs_arr.mean())
                 std = float(aucs_arr.std(ddof=1)) if len(aucs_arr) > 1 else 0.0
-                ci_lo, ci_hi = bootstrap_mean_auc_ci(
-                    per_run, B=B, bootstrap_seed=bootstrap_seed,
-                    labels_per_seed=labels_per_run)
+                ci_lo, ci_hi = _group_bootstrap_ci(
+                    arm, per_run, labels_per_run, window_keys, B, bootstrap_seed)
                 rows.append({
                     "w": w, "arm": arm, "subset": subset, "scoring": scoring,
                     "mean": mean, "std": std, "ci_lo": ci_lo, "ci_hi": ci_hi,
@@ -620,7 +643,6 @@ def build_windowed_attribution_table(ws: Workspace, B: int = 2000, bootstrap_see
     import pandas as pd
     from sklearn.metrics import roc_auc_score
 
-    from .manuscript import bootstrap_mean_auc_ci
     from .metrics import ATTACK_CLASSES
 
     groups: dict = {}
@@ -635,20 +657,21 @@ def build_windowed_attribution_table(ws: Workspace, B: int = 2000, bootstrap_see
         per_cell_ci: dict = {}
         for attack in ATTACK_CLASSES:
             for m in config.MANIFOLDS:
-                per_run, labels_per_run, aucs = [], [], []
+                per_run, labels_per_run, window_keys, aucs = [], [], [], []
                 for r in group_runs:
                     df = r["window_df"]
                     y = (df["majority_label"].to_numpy() == attack).astype(int)
                     if len(np.unique(y)) < 2:
                         continue
+                    window_keys.append(df["start_pos"].to_numpy())
                     scores = df[f"W2_{m}"].to_numpy()
                     per_run.append((y, scores))
                     labels_per_run.append(df["majority_label"].to_numpy())
                     aucs.append(float(roc_auc_score(y, scores)))
                 per_cell_aucs[(attack, m)] = aucs
                 per_cell_ci[(attack, m)] = (
-                    bootstrap_mean_auc_ci(per_run, B=B, bootstrap_seed=bootstrap_seed,
-                                           labels_per_seed=labels_per_run)
+                    _group_bootstrap_ci("ordered", per_run, labels_per_run, window_keys,
+                                        B, bootstrap_seed)
                     if per_run else (float("nan"), float("nan"))
                 )
 
@@ -894,7 +917,20 @@ def build_frontier_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0,
 
 # --- Aggregate builder + campaign-report CLI plumbing ------------------------
 
-def build_windowed_tables(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0) -> dict:
+def committed_per_flow_seconds(ws: Workspace) -> "float | None":
+    """Per-flow ``marginal_s`` already recorded in `compute_frontier.csv`, if any."""
+    import pandas as pd
+
+    path = _windowed_dir(ws) / _TABLE_FILENAMES["frontier"]
+    if not path.exists():
+        return None
+    df = pd.read_csv(path, dtype={"row": str})
+    rows = df.loc[df["row"] == _PER_FLOW_ROW, "marginal_s"]
+    return float(rows.iloc[0]) if len(rows) else None
+
+
+def build_windowed_tables(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0,
+                          time_probe_fn=None) -> dict:
     """Build all four windowed-variant report tables from whatever campaign
     runs are present under `results/tables/rebuild/windowed/`.
 
@@ -907,6 +943,7 @@ def build_windowed_tables(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0)
         "attribution": build_windowed_attribution_table(ws, B=B, bootstrap_seed=bootstrap_seed),
         "contamination": build_contamination_table(ws),
         "frontier": build_frontier_table(ws, B=B, bootstrap_seed=bootstrap_seed,
+                                          time_probe_fn=time_probe_fn,
                                           detection_df=detection),
     }
 
@@ -1222,6 +1259,17 @@ def _render_windowed_report(tables: dict, determinism: dict,
         "(exact Rips); network stays sparse (ε=0.5) because H2 homology over "
         "10 dense features blew the 2s budget (first trial 35.1s). See §7 "
         "(Determinism) for the measured campaign-scale confirmation."
+    )
+    lines.append("")
+    lines.append(
+        "**CI method.** 95% bootstrap intervals stratified on the window majority label. "
+        "Ordered repeats contain the same windows, so the windows are resampled once per "
+        "replicate and that resample is applied to every repeat; only sparse-Rips noise "
+        "differs between repeats, and `std` measures that noise, not sampling "
+        "uncertainty. Shuffled runs contain different windows and are resampled "
+        "independently (their shared underlying flows are not modeled). Until 2026-11-23 "
+        "the ordered intervals resampled each repeat independently, which counted the "
+        "same windows once per repeat and made them about 3x too narrow."
     )
     lines.append("")
     lines.append("**Documented deviations from the original task briefs:**")

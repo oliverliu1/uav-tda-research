@@ -2,6 +2,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from uav_tda import cli, config, manuscript
 
@@ -44,6 +45,37 @@ def test_bootstrap_never_drops_a_class():
     scores = np.arange(100, dtype=float)
     lo, hi = manuscript.bootstrap_mean_auc_ci([(y, scores)], B=200, bootstrap_seed=0)
     assert np.isfinite(lo) and np.isfinite(hi)  # no ValueError from single-class replicate
+
+
+# --- Shared-unit bootstrap (repeats that score the SAME rows) -----------------
+
+def _overlapping_scores(n=100, seed=3):
+    rng = np.random.default_rng(seed)
+    y = np.array([0] * n + [1] * n)
+    return y, np.concatenate([rng.normal(0, 1, n), rng.normal(1.2, 1, n)])
+
+
+def test_shared_bootstrap_of_identical_repeats_equals_one_repeat():
+    """Ten copies of the same rows carry no more information than one copy."""
+    y, scores = _overlapping_scores()
+    one = manuscript.bootstrap_shared_mean_auc_ci(y, [scores], B=300, bootstrap_seed=0)
+    ten = manuscript.bootstrap_shared_mean_auc_ci(y, [scores] * 10, B=300, bootstrap_seed=0)
+    assert ten == pytest.approx(one, abs=1e-12)
+
+
+def test_shared_bootstrap_matches_independent_bootstrap_for_a_single_run():
+    y, scores = _overlapping_scores()
+    assert manuscript.bootstrap_shared_mean_auc_ci(
+        y, [scores], B=300, bootstrap_seed=0
+    ) == manuscript.bootstrap_mean_auc_ci([(y, scores)], B=300, bootstrap_seed=0)
+
+
+def test_shared_bootstrap_stratifies_on_multiclass_labels():
+    y = np.array([0] * 98 + [1] * 2)
+    labels = np.array(["N"] * 98 + ["A", "B"])
+    lo, hi = manuscript.bootstrap_shared_mean_auc_ci(
+        y, [np.arange(100, dtype=float)], B=200, bootstrap_seed=0, labels=labels)
+    assert (lo, hi) == pytest.approx((1.0, 1.0))
 
 
 # --- Ten-seed campaign orchestration -----------------------------------------
@@ -191,6 +223,9 @@ def test_manuscript_report_cmd_runs_without_real_probe(tmp_path, monkeypatch):
     assert (rebuild / "paper_snippets" / "binary_auc_pgfplots.tex").exists()
     # Report must land in the redirected tree, never the real paper/ dir.
     assert (tmp_path / "paper" / "MANUSCRIPT_STATS.md").exists()
+    text = (tmp_path / "paper" / "MANUSCRIPT_STATS.md").read_text()
+    assert "seeds are not resampled" in text
+    assert "reference set is fixed" in text
 
 
 # --- LaTeX/pgfplots emitters (golden-string tests) ---------------------------
