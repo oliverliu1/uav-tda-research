@@ -294,6 +294,20 @@ def test_shuffled_ci_still_resamples_each_run(tmp_path):
     assert (row["ci_lo"], row["ci_hi"]) == expected
 
 
+def test_dominant_at_chance_lists_only_dominant_cells_reaching_half():
+    df = pd.DataFrame([
+        {"w": 25, "attack_class": "A", "manifold": "c2", "dominant": True,
+         "mean": 0.55, "ci_lo": 0.49, "ci_hi": 0.61},
+        {"w": 25, "attack_class": "A", "manifold": "network", "dominant": False,
+         "mean": 0.45, "ci_lo": 0.40, "ci_hi": 0.52},
+        {"w": 50, "attack_class": "B", "manifold": "c2", "dominant": True,
+         "mean": 0.90, "ci_lo": 0.85, "ci_hi": 0.95},
+    ])
+    out = windowed.dominant_at_chance(df)
+    assert [(r["w"], r["attack_class"], r["manifold"]) for _, r in out.iterrows()] == [
+        (25, "A", "c2")]
+
+
 def test_committed_per_flow_seconds_reads_existing_frontier(tmp_path):
     ws = Workspace.at(tmp_path)
     ws.ensure()
@@ -464,6 +478,8 @@ def test_windowed_report_cmd_runs_without_real_campaign(tmp_path, monkeypatch):
     assert _per_flow_s() == 0.99
     text = (tmp_path / "paper" / "WINDOWED_RESULTS.md").read_text()
     assert "resampled once per replicate" in text
+    assert "treated as independent" in text
+    assert "not distinguishable from chance" in text
 
     d = rebuild / "windowed"
     for name in ("windowed_detection.csv", "windowed_attribution.csv",

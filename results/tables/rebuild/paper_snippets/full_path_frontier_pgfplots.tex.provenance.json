@@ -1,8 +1,8 @@
 {
   "artifact": "full_path_frontier_pgfplots.tex",
-  "artifact_sha256": "ba2736986648d602703a45d4f0d189e6b60f6ad74ecf43f2a784c1ea7cf82c7c",
-  "created_utc": "2026-11-10T05:31:25.343775+00:00",
-  "git_sha": "570e09330fbeafd9d631632fc9030e1e69ee518b",
+  "artifact_sha256": "caf25d22bb482051d40bd08f2d844291c8b9fdd3a8d2c528ea0086bc8cb17363",
+  "created_utc": "2026-11-23T21:06:02.488354+00:00",
+  "git_sha": "2102479533ab56261be275375dae8513efe7b154",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",

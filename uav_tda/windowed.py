@@ -694,6 +694,11 @@ def build_windowed_attribution_table(ws: Workspace, B: int = 2000, bootstrap_see
     return pd.DataFrame(rows)
 
 
+def dominant_at_chance(attribution):
+    """Dominant (w, attack) cells whose CI reaches AUC 0.5 (no better than chance)."""
+    return attribution[attribution["dominant"].astype(bool) & (attribution["ci_lo"] <= 0.5)]
+
+
 # --- Contamination curve -----------------------------------------------------
 
 def _contamination_bin_labels() -> list:
@@ -1269,7 +1274,10 @@ def _render_windowed_report(tables: dict, determinism: dict,
         "uncertainty. Shuffled runs contain different windows and are resampled "
         "independently (their shared underlying flows are not modeled). Until 2026-11-23 "
         "the ordered intervals resampled each repeat independently, which counted the "
-        "same windows once per repeat and made them about 3x too narrow."
+        "same windows once per repeat and made them about 3x too narrow. Windows are "
+        "treated as independent: neighbouring windows inside one long attack run (median "
+        "Wormhole run 13,043 flows) may be correlated, which would make even these "
+        "intervals optimistic."
     )
     lines.append("")
     lines.append("**Documented deviations from the original task briefs:**")
@@ -1585,6 +1593,16 @@ def _render_windowed_report(tables: dict, determinism: dict,
             else:
                 per_w.append(f"W={int(w)}: no dominant manifold recorded")
         lines.append(f"- {attack} (per-flow expectation: {expected}): " + "; ".join(per_w))
+    lines.append("")
+
+    at_chance = dominant_at_chance(attribution)
+    cells = "; ".join(
+        f"{r['attack_class']} W={int(r['w'])} ({r['manifold']} {r['mean']:.4f} "
+        f"[{r['ci_lo']:.4f}, {r['ci_hi']:.4f}])" for _, r in at_chance.iterrows())
+    lines.append(
+        "**Dominant manifold not distinguishable from chance** (95% CI reaches AUC 0.5): "
+        f"{cells or 'none'}."
+    )
     lines.append("")
 
     # --- 7. Determinism ----------------------------------------------------------
