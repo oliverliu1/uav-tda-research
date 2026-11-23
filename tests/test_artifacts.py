@@ -411,10 +411,15 @@ def test_unresolved_attributions_committed_data():
     got = {(r["attack_class"], r["block"], r["dominant"], r["runner_up"])
            for _, r in out.iterrows()}
     assert got == {
-        ("Wormhole Attack", "W=50", "network", "physical"),
+        ("Flooding Attack", "W=25", "c2", "network"),
+        ("Wormhole Attack", "W=25", "network", "physical"),
         ("Flooding Attack", "W=50", "c2", "network"),
+        ("Wormhole Attack", "W=50", "network", "physical"),
         ("Flooding Attack", "W=100", "c2", "network"),
+        ("Wormhole Attack", "W=100", "physical", "network"),
         ("Flooding Attack", "W=200", "network", "c2"),
+        ("Blackhole Attack", "W=200", "physical", "c2"),
+        ("Wormhole Attack", "W=200", "physical", "network"),
     }
 
 

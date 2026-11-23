@@ -1,4 +1,4 @@
-"""Manuscript-grade statistics: ten-seed cluster bootstrap AUC CIs.
+"""Manuscript-grade statistics: ten-seed bootstrap AUC CIs.
 
 Phase 4 adds a bootstrap-CI treatment of the across-seed mean AUC for the
 manuscript's ten-seed evaluation (see config.MANUSCRIPT_SEEDS). Resampling
@@ -43,7 +43,7 @@ def bootstrap_mean_auc_ci(
     bootstrap_seed: int = 0,
     labels_per_seed: list[np.ndarray] | None = None,
 ) -> tuple[float, float]:
-    """Cluster bootstrap CI for the across-seed mean AUC.
+    """Within-seed bootstrap CI for the across-seed mean AUC.
 
     `per_seed` is a list of (y_binary, scores) pairs, one per seed.
     `labels_per_seed[i]`, if given, carries the multiclass labels used for
@@ -53,6 +53,12 @@ def bootstrap_mean_auc_ci(
     Each of B replicates: for every seed, stratified-resample that seed's
     rows, compute roc_auc_score on the resample, then average across seeds.
     Returns the 2.5th/97.5th percentiles of the B replicate means.
+
+    Seeds themselves are never resampled, and every entry is resampled
+    independently. Use this only when the entries are different samples of
+    rows. When the entries score the SAME rows (e.g. windowed ordered-arm
+    repeats), independent resampling counts those rows once per entry and
+    makes the CI too narrow: use `bootstrap_shared_mean_auc_ci`.
     """
     rng = np.random.default_rng(bootstrap_seed)
     replicate_means = np.empty(B, dtype=float)
@@ -64,6 +70,32 @@ def bootstrap_mean_auc_ci(
             idx = stratified_resample_indices(strat_labels, rng)
             seed_aucs[i] = roc_auc_score(y_binary[idx], scores[idx])
         replicate_means[b] = seed_aucs.mean()
+
+    ci_lo, ci_hi = np.percentile(replicate_means, [2.5, 97.5])
+    return float(ci_lo), float(ci_hi)
+
+
+def bootstrap_shared_mean_auc_ci(
+    y: np.ndarray,
+    run_scores: list[np.ndarray],
+    B: int = 2000,
+    bootstrap_seed: int = 0,
+    labels: np.ndarray | None = None,
+) -> tuple[float, float]:
+    """Bootstrap CI for the across-run mean AUC when every run scores the SAME rows.
+
+    Each replicate draws ONE stratified resample of the rows (on `labels`,
+    else on `y`), applies it to every run's scores, and averages the run
+    AUCs, so repeating a run adds no information. Returns the 2.5th/97.5th
+    percentiles of the B replicate means.
+    """
+    rng = np.random.default_rng(bootstrap_seed)
+    strat_labels = labels if labels is not None else y
+    replicate_means = np.empty(B, dtype=float)
+
+    for b in range(B):
+        idx = stratified_resample_indices(strat_labels, rng)
+        replicate_means[b] = np.mean([roc_auc_score(y[idx], s[idx]) for s in run_scores])
 
     ci_lo, ci_hi = np.percentile(replicate_means, [2.5, 97.5])
     return float(ci_lo), float(ci_hi)
@@ -423,9 +455,16 @@ def _render_manuscript_stats(
     lines.append(f"- Bootstrap replicates: B = {B}")
     lines.append(f"- Wasserstein-2 per-call timeout: {w2_timeout}s")
     lines.append(
-        "- CI method: cluster bootstrap over seeds, stratified per-seed "
+        "- CI method: bootstrap within seeds (seeds are not resampled), stratified per-seed "
         "resampling on multiclass label, 2.5th/97.5th percentile of the "
         "across-seed mean AUC over B replicates (`bootstrap_mean_auc_ci`)."
+    )
+    lines.append(
+        "- What a seed varies: the per-class sample of test flows, plus sparse-Rips noise in "
+        "the C2/Network baselines. The 500-flow reference set is fixed across seeds, so these "
+        "results say nothing about robustness to the reference choice. Seeds draw from the same "
+        "test split, so their samples partly overlap; the CI treats them as independent and is "
+        "therefore somewhat narrow as a statement about new data."
     )
     lines.append("")
 

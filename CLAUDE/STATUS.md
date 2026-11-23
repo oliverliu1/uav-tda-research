@@ -1,4 +1,4 @@
-# Project Status — 2026-11-11
+# Project Status — 2026-11-23
 
 One page on where everything stands. Framing and decisions: `CLAUDE/PROJECT_BRIEF.md`.
 Manuscript audit (dated 2026-10-18 snapshot, not updated): `CLAUDE/MANUSCRIPT_READINESS_AUDIT.md`. Agent rules: root `CLAUDE.md`.
@@ -16,7 +16,7 @@ Human entry point: `README.md`.
   remains.
 - **Phase 8 (manuscript artifacts):** merged to `main` (PR #19, after the audit/cleanup PR #18;
   2026-11-10) (`uav-tda artifacts`): full-path frontier, unique window counts, operating points,
-  six figures, three new snippets, backfilled sidecars. Fast suite 162 passed / 0 skipped; ruff
+  six figures, three new snippets, backfilled sidecars. Fast suite 175 passed / 0 skipped; ruff
   clean; CI green (runner pinned to `ubuntu-24.04`). Report:
   `paper/MANUSCRIPT_ARTIFACTS.md`; figures: `results/figures/manuscript/`.
 
@@ -25,7 +25,7 @@ Human entry point: `README.md`.
 | Doc | What it holds | Headline |
 |---|---|---|
 | `paper/EXACT_RESULTS.md` | full test split, hera δ≤0.01, no sampling | znorm all-three AUC **0.9082 [0.9033, 0.9131]**; attribution replicates |
-| `paper/MANUSCRIPT_STATS.md` | 10 seeds, cluster-bootstrap CIs, probe config | znorm all-three 0.8930 ± 0.0078 |
+| `paper/MANUSCRIPT_STATS.md` | 10 seeds, within-seed bootstrap CIs, probe config, fixed reference set | znorm all-three 0.8930 ± 0.0078 |
 | `paper/WINDOWED_RESULTS.md` | W ∈ {25, 50, 100, 200}, 80 runs, shuffle control | W=100 0.9376 ± 0.0005; shuffle Δ +0.32–0.37; Sybil flips to C2 at window level |
 | `paper/LATENCY_RESULTS.md` | full inference path, per-flow + windowed | per-flow 3.576 s mean / 3.859 s p95 (Rosetta-emulated M1 Pro); W=25 0.0075 s/decision |
 | `paper/ZNORM_RESULTS.md` | 3-seed raw vs znorm; seed-123 reanalysis | 0 timeouts at 30 s |
@@ -55,10 +55,14 @@ attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attributio
 `results/figures/legacy_2026-04/`. Also closed: unique-vs-pooled window counts, missing sidecars
 (backfilled), eps-max values persisted. Caption caveats:
 
-- Four attribution cells are unresolved (dominant CI overlaps runner-up; derived scan in the
-  report): Flooding W=50 C2 0.6757 vs Network 0.6293; Wormhole W=50 Network 0.8140 vs Physical
-  0.8096; Flooding W=100 C2 0.7102 vs Network 0.6775; Flooding W=200 Network 0.7467 vs C2 0.6965.
-  Do not read these dominances as resolved.
+- Nine of 16 windowed attribution cells have overlapping CIs (conservative, not a paired test; scan
+  in the report): Flooding and Wormhole at every W, Blackhole at W=200. Blackhole's dominant
+  (Physical) CI also reaches AUC 0.5 at every W. Do not read these dominances as resolved.
+- Windowed CIs were corrected 2026-11-23 (shared-window bootstrap; the old ordered-arm CIs were about
+  3x too narrow). W=100 is 0.9376 [0.900, 0.969], which overlaps the per-flow full-test CI, so
+  "windowing beats per-flow" is not established. Adjacent windows are correlated (lag-1 0.44 to
+  0.70), so these CIs are still optimistic; block-10 bootstrap at W=100 is [0.874, 0.985].
+  The per-flow full-test CI has not been checked for the same dependence.
 - Also in the report: windowed cost is Rips + W2 (slicing inside W2) with no scaler stage
   (pre-scaled inputs; per-flow scaler ~2.51 ms) and no baseline setup, so the W=25 speedup is
   upper-end; per-flow vs windowed AUC units differ (M2); contamination uses an empirical Q95
@@ -70,7 +74,8 @@ attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attributio
 
 - Per-flow headline estimand: decided 2026-11-11, full-test δ≤0.01 AUC 0.9082; the 10-seed probe
   0.8930 is used only where paired with the latency harness cost (frontier).
-- Companion-board latency run: decided to run (2026-11-11); hardware being chosen.
+- Companion-board latency run: Raspberry Pi 5 (4 GB, active cooler, 27 W supply, USB 3 SSD), setup in
+  progress 2026-11-23.
 - Cross-benchmark evaluation: decided, future work (reword the §V promise).
 
 Decided 2026-11-11: April stash dropped; `archive/poster_eda/node_modules` untracked

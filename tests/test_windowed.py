@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -241,6 +243,135 @@ def test_build_windowed_attribution_dominant_unique(tmp_path):
         assert sub["dominant"].sum() == 1
 
 
+def _write_identical_overlapping_repeats(ws, n_repeats):
+    """Ordered repeats as in the real campaign: same windows, same scores."""
+    df = _synthetic_window_df(80, 25, seed=11)
+    noise = np.random.default_rng(12)
+    for col in [c for c in df.columns if c.startswith(("W2_", "Z2_"))]:
+        df[col] = df[col] + noise.normal(0, 1.5, len(df))
+    timing = {"total_s": 10.0, "n_windows": 80, "per_window_s": 0.125,
+              "rips_s": 5.0, "w2_s": 3.0, "baseline_s": 2.0}
+    for k in range(n_repeats):
+        windowed.write_run_artifacts(
+            ws, 25, "ordered", k, df, {m: (0.0, 1.0) for m in config.MANIFOLDS}, timing)
+    return df
+
+
+@pytest.mark.parametrize("builder", [windowed.build_detection_table,
+                                     windowed.build_windowed_attribution_table])
+def test_ordered_ci_does_not_narrow_with_repeats_of_the_same_windows(tmp_path, builder):
+    """Ordered repeats share windows; repeating them must not shrink the CI."""
+    tables = []
+    for n in (1, 5):
+        ws = Workspace.at(tmp_path / str(n))
+        ws.ensure()
+        _write_identical_overlapping_repeats(ws, n)
+        tables.append(builder(ws, B=100, bootstrap_seed=0))
+    assert (tables[0]["ci_hi"] > tables[0]["ci_lo"]).any()
+    np.testing.assert_allclose(tables[1][["ci_lo", "ci_hi"]], tables[0][["ci_lo", "ci_hi"]])
+
+
+def test_ordered_repeats_with_different_windows_are_rejected(tmp_path):
+    ws = Workspace.at(tmp_path)
+    ws.ensure()
+    _write_synthetic_run(ws, 25, "ordered", 0, n_windows=40, seed=0)
+    _write_synthetic_run(ws, 25, "ordered", 1, n_windows=38, seed=0)
+    with pytest.raises(ValueError, match="same windows"):
+        windowed.build_detection_table(ws, B=10)
+
+
+def test_shuffled_ci_still_resamples_each_run(tmp_path):
+    """Shuffled runs are different windows, so each run is resampled on its own."""
+    from uav_tda.manuscript import bootstrap_mean_auc_ci
+
+    ws = Workspace.at(tmp_path)
+    ws.ensure()
+    dfs = [_write_synthetic_run(ws, 25, "shuffled", k, n_windows=40, seed=k)[0] for k in range(2)]
+    table = windowed.build_detection_table(ws, B=50, bootstrap_seed=0)
+    row = table[(table["subset"] == "all_three") & (table["scoring"] == "znorm")].iloc[0]
+    expected = bootstrap_mean_auc_ci(
+        [((d["majority_label"] != "Normal Traffic").astype(int).to_numpy(),
+          d["Z2_all_three"].to_numpy()) for d in dfs],
+        B=50, bootstrap_seed=0, labels_per_seed=[d["majority_label"].to_numpy() for d in dfs])
+    assert (row["ci_lo"], row["ci_hi"]) == expected
+
+
+def test_dominant_at_chance_lists_only_dominant_cells_reaching_half():
+    df = pd.DataFrame([
+        {"w": 25, "attack_class": "A", "manifold": "c2", "dominant": True,
+         "mean": 0.55, "ci_lo": 0.49, "ci_hi": 0.61},
+        {"w": 25, "attack_class": "A", "manifold": "network", "dominant": False,
+         "mean": 0.45, "ci_lo": 0.40, "ci_hi": 0.52},
+        {"w": 50, "attack_class": "B", "manifold": "c2", "dominant": True,
+         "mean": 0.90, "ci_lo": 0.85, "ci_hi": 0.95},
+    ])
+    out = windowed.dominant_at_chance(df)
+    assert [(r["w"], r["attack_class"], r["manifold"]) for _, r in out.iterrows()] == [
+        (25, "A", "c2")]
+
+
+def test_ordered_repeats_with_different_labels_are_rejected(tmp_path):
+    ws = Workspace.at(tmp_path)
+    ws.ensure()
+    _write_synthetic_run(ws, 25, "ordered", 0, n_windows=40, seed=0)
+    df, stats, timing = _write_synthetic_run(ws, 25, "ordered", 1, n_windows=40, seed=0)
+    df.loc[0, "majority_label"] = "Sybil Attack"
+    windowed.write_run_artifacts(ws, 25, "ordered", 1, df, stats, timing)
+    with pytest.raises(ValueError, match="same windows"):
+        windowed.build_detection_table(ws, B=10)
+
+
+def _ws_with_scores(tmp_path, scores):
+    """One ordered W=25 run: a Normal block then an attack block, given scores."""
+    ws = Workspace.at(tmp_path)
+    ws.ensure()
+    n = len(scores) // 2
+    df = _synthetic_window_df(len(scores), 25, seed=0)
+    df["majority_label"] = ["Normal Traffic"] * n + ["Sybil Attack"] * n
+    df["Z2_all_three"] = scores
+    timing = {"total_s": 10.0, "n_windows": len(scores), "per_window_s": 0.1,
+              "rips_s": 5.0, "w2_s": 3.0, "baseline_s": 2.0}
+    windowed.write_run_artifacts(
+        ws, 25, "ordered", 0, df, {m: (0.0, 1.0) for m in config.MANIFOLDS}, timing)
+    return ws
+
+
+def test_window_dependence_detects_correlated_neighbours(tmp_path):
+    rng = np.random.default_rng(0)
+    iid = np.concatenate([rng.normal(0, 1, 200), rng.normal(1, 1, 200)])
+    walk = rng.normal(0, 1, (2, 200))
+    for t in range(1, 200):
+        walk[:, t] = 0.9 * walk[:, t - 1] + np.sqrt(1 - 0.81) * walk[:, t]
+    corr = np.concatenate([walk[0], walk[1] + 1])
+    a = windowed.build_window_dependence_table(_ws_with_scores(tmp_path / "a", iid), B=300)
+    b = windowed.build_window_dependence_table(_ws_with_scores(tmp_path / "b", corr), B=300)
+    assert list(a["block_len"]) == [1, 5, 10]
+    assert abs(a["lag1_autocorr"].iloc[0]) < 0.2
+    assert b["lag1_autocorr"].iloc[0] > 0.7
+    width = (b["ci_hi"] - b["ci_lo"]).to_numpy()
+    assert width[2] > 1.5 * width[0]
+
+
+def test_committed_per_flow_seconds_rejects_nan_and_missing_row(tmp_path):
+    ws = Workspace.at(tmp_path)
+    ws.ensure()
+    d = ws.tables_dir / "rebuild" / "windowed"
+    d.mkdir(parents=True)
+    for body in ("25,0.009\n", "per_flow,\n"):
+        (d / "compute_frontier.csv").write_text("row,marginal_s\n" + body)
+        assert windowed.committed_per_flow_seconds(ws) is None
+
+
+def test_committed_per_flow_seconds_reads_existing_frontier(tmp_path):
+    ws = Workspace.at(tmp_path)
+    ws.ensure()
+    assert windowed.committed_per_flow_seconds(ws) is None
+    d = ws.tables_dir / "rebuild" / "windowed"
+    d.mkdir(parents=True)
+    (d / "compute_frontier.csv").write_text("row,marginal_s\n25,0.009\nper_flow,0.0602\n")
+    assert windowed.committed_per_flow_seconds(ws) == 0.0602
+
+
 def test_contamination_bins_partition_and_bin0_pure_normal(tmp_path):
     ws = Workspace.at(tmp_path)
     ws.ensure()
@@ -386,6 +517,31 @@ def test_windowed_report_cmd_runs_without_real_campaign(tmp_path, monkeypatch):
         ["windowed-report", "--root", str(tmp_path), "--bootstrap", "50"])
     rc = cli._cmd_windowed_report(args)
     assert rc == 0
+
+    def _per_flow_s():
+        df = pd.read_csv(rebuild / "windowed" / "compute_frontier.csv", dtype={"row": str})
+        return float(df.loc[df["row"] == "per_flow", "marginal_s"].iloc[0])
+
+    def _timing_note():
+        p = rebuild / "windowed" / "compute_frontier.csv.provenance.json"
+        return json.loads(p.read_text())["params"]["per_flow_timing"]
+
+    # A rebuild reuses the recorded per-flow timing unless --retime is given.
+    assert _per_flow_s() == 0.01
+    assert _timing_note() == "measured"
+    monkeypatch.setattr(windowed, "_time_per_flow_probe", lambda *a, **k: 0.99)
+    base = ["windowed-report", "--root", str(tmp_path), "--bootstrap", "50"]
+    assert cli._cmd_windowed_report(cli.build_parser().parse_args(base)) == 0
+    assert _per_flow_s() == 0.01
+    assert _timing_note() == "reused"
+    assert cli._cmd_windowed_report(cli.build_parser().parse_args(base + ["--retime"])) == 0
+    assert _per_flow_s() == 0.99
+    text = (tmp_path / "paper" / "WINDOWED_RESULTS.md").read_text()
+    assert "resampled once per replicate" in text
+    assert "Window dependence" in text
+    assert "CIs overlap" in text
+    assert "superseded by" in text
+    assert "not distinguishable from chance" in text
 
     d = rebuild / "windowed"
     for name in ("windowed_detection.csv", "windowed_attribution.csv",

@@ -1,8 +1,8 @@
 {
   "artifact": "max_edge_lengths.json",
   "artifact_sha256": "760ae757138d23d5b8c26d36870cac277f39fddfb1bfe2805091bd044d45c167",
-  "created_utc": "2026-11-10T05:31:25.247237+00:00",
-  "git_sha": "570e09330fbeafd9d631632fc9030e1e69ee518b",
+  "created_utc": "2026-11-23T21:23:21.059130+00:00",
+  "git_sha": "b08837ba5f06212e2da6751eb7cc7289dae65690",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",

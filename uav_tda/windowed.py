@@ -544,26 +544,49 @@ def load_all_runs(ws: Workspace) -> list:
     return runs
 
 
+def _group_bootstrap_ci(arm: str, per_run: list, labels_per_run: list, window_keys: list,
+                        B: int, bootstrap_seed: int) -> tuple:
+    """CI of the across-run mean AUC, using the resampling the arm's design needs.
+
+    Ordered repeats score the SAME windows, so one resample per replicate is
+    shared by every run; resampling each repeat independently would count
+    the same windows once per repeat. Shuffled runs are different windows
+    per seed, so each is resampled on its own.
+    """
+    import numpy as np
+
+    from .manuscript import bootstrap_mean_auc_ci, bootstrap_shared_mean_auc_ci
+
+    if arm != "ordered":
+        return bootstrap_mean_auc_ci(per_run, B=B, bootstrap_seed=bootstrap_seed,
+                                     labels_per_seed=labels_per_run)
+    if not all(np.array_equal(window_keys[0], k) and np.array_equal(labels_per_run[0], lab)
+               for k, lab in zip(window_keys, labels_per_run)):
+        raise ValueError("ordered-arm repeats must contain the same windows")
+    return bootstrap_shared_mean_auc_ci(
+        per_run[0][0], [scores for _, scores in per_run], B=B,
+        bootstrap_seed=bootstrap_seed, labels=labels_per_run[0])
+
+
 # --- Detection table ---------------------------------------------------------
 
 def build_detection_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0):
     """Window-level binary (Normal-vs-any-attack) AUC, per W x arm x subset x scoring.
 
     Groups loaded runs by (w, arm); within each group, treats each run as
-    one "seed" in the `manuscript.bootstrap_mean_auc_ci` sense: per-run AUC
+    one realization: per-run AUC
     on ``y = majority_label != "Normal Traffic"`` vs. that run's
     ``W2_<subset>`` column (scoring="raw") or ``Z2_<subset>`` column
     (scoring="znorm"). mean/std (ddof=1) across runs; CI via
-    `bootstrap_mean_auc_ci` with ``labels_per_seed`` = each run's
-    `majority_label` array (stratified resampling, avoiding single-class
-    bootstrap replicates when a run has few attack windows). Columns: w,
+    `_group_bootstrap_ci` (shared resample for the ordered arm, per-run
+    resample for the shuffled arm), stratified on `majority_label` to avoid
+    single-class bootstrap replicates. Columns: w,
     arm, subset, scoring, mean, std, ci_lo, ci_hi, n_runs.
     """
     import numpy as np
     import pandas as pd
     from sklearn.metrics import roc_auc_score
 
-    from .manuscript import bootstrap_mean_auc_ci
     from .metrics import MANIFOLD_SUBSETS
 
     groups: dict = {}
@@ -574,9 +597,10 @@ def build_detection_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0)
     for (w, arm), group_runs in sorted(groups.items()):
         for subset in MANIFOLD_SUBSETS:
             for scoring, prefix in (("raw", "W2_"), ("znorm", "Z2_")):
-                per_run, labels_per_run, aucs = [], [], []
+                per_run, labels_per_run, window_keys, aucs = [], [], [], []
                 for r in group_runs:
                     df = r["window_df"]
+                    window_keys.append(df["start_pos"].to_numpy())
                     y = (df["majority_label"] != _NORMAL_LABEL).astype(int).to_numpy()
                     scores = df[f"{prefix}{subset}"].to_numpy()
                     per_run.append((y, scores))
@@ -585,9 +609,8 @@ def build_detection_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0)
                 aucs_arr = np.asarray(aucs, dtype=float)
                 mean = float(aucs_arr.mean())
                 std = float(aucs_arr.std(ddof=1)) if len(aucs_arr) > 1 else 0.0
-                ci_lo, ci_hi = bootstrap_mean_auc_ci(
-                    per_run, B=B, bootstrap_seed=bootstrap_seed,
-                    labels_per_seed=labels_per_run)
+                ci_lo, ci_hi = _group_bootstrap_ci(
+                    arm, per_run, labels_per_run, window_keys, B, bootstrap_seed)
                 rows.append({
                     "w": w, "arm": arm, "subset": subset, "scoring": scoring,
                     "mean": mean, "std": std, "ci_lo": ci_lo, "ci_hi": ci_hi,
@@ -620,7 +643,6 @@ def build_windowed_attribution_table(ws: Workspace, B: int = 2000, bootstrap_see
     import pandas as pd
     from sklearn.metrics import roc_auc_score
 
-    from .manuscript import bootstrap_mean_auc_ci
     from .metrics import ATTACK_CLASSES
 
     groups: dict = {}
@@ -635,20 +657,21 @@ def build_windowed_attribution_table(ws: Workspace, B: int = 2000, bootstrap_see
         per_cell_ci: dict = {}
         for attack in ATTACK_CLASSES:
             for m in config.MANIFOLDS:
-                per_run, labels_per_run, aucs = [], [], []
+                per_run, labels_per_run, window_keys, aucs = [], [], [], []
                 for r in group_runs:
                     df = r["window_df"]
                     y = (df["majority_label"].to_numpy() == attack).astype(int)
                     if len(np.unique(y)) < 2:
                         continue
+                    window_keys.append(df["start_pos"].to_numpy())
                     scores = df[f"W2_{m}"].to_numpy()
                     per_run.append((y, scores))
                     labels_per_run.append(df["majority_label"].to_numpy())
                     aucs.append(float(roc_auc_score(y, scores)))
                 per_cell_aucs[(attack, m)] = aucs
                 per_cell_ci[(attack, m)] = (
-                    bootstrap_mean_auc_ci(per_run, B=B, bootstrap_seed=bootstrap_seed,
-                                           labels_per_seed=labels_per_run)
+                    _group_bootstrap_ci("ordered", per_run, labels_per_run, window_keys,
+                                        B, bootstrap_seed)
                     if per_run else (float("nan"), float("nan"))
                 )
 
@@ -668,6 +691,78 @@ def build_windowed_attribution_table(ws: Workspace, B: int = 2000, bootstrap_see
                     "mean": means[m], "std": std, "ci_lo": ci_lo, "ci_hi": ci_hi,
                     "dominant": m == dominant_manifold, "n_runs": len(per_cell_aucs[(attack, m)]),
                 })
+    return pd.DataFrame(rows)
+
+
+def dominant_at_chance(attribution):
+    """Dominant (w, attack) cells whose CI reaches AUC 0.5 (no better than chance)."""
+    return attribution[attribution["dominant"].astype(bool) & (attribution["ci_lo"] <= 0.5)]
+
+
+# --- Window dependence (sensitivity of the iid-window intervals) -------------
+
+DEPENDENCE_BLOCK_LENGTHS = (1, 5, 10)
+
+
+def _rank_auc(y, scores) -> float:
+    from scipy.stats import rankdata
+
+    n1 = int(y.sum())
+    n0 = len(y) - n1
+    return float((rankdata(scores)[y].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
+
+
+def build_window_dependence_table(ws: Workspace, B: int = 1000, bootstrap_seed: int = 0):
+    """How far ordered windows are from independent, and what that does to the CI.
+
+    Per W, for ordered-arm all_three znorm scores: `lag1_autocorr` is the
+    pooled correlation of within-class standardized ranks between adjacent
+    windows with the same majority label (first repeat); `ci_lo`/`ci_hi` are
+    a within-class circular block bootstrap of the across-repeat mean AUC
+    (block_len=1 is the iid interval). Few independent runs exist, so the
+    block intervals are indicative. `n_runs_min` is the smallest number of
+    contiguous label runs any class has.
+    """
+    import numpy as np
+    import pandas as pd
+    from scipy.stats import rankdata
+
+    groups: dict = {}
+    for r in load_all_runs(ws):
+        if r["arm"] == "ordered":
+            groups.setdefault(r["w"], []).append(r["window_df"])
+
+    rows = []
+    for w, dfs in sorted(groups.items()):
+        labels = dfs[0]["majority_label"].to_numpy()
+        y = labels != _NORMAL_LABEL
+        all_scores = [d["Z2_all_three"].to_numpy() for d in dfs]
+        classes = np.unique(labels)
+        z = np.zeros(len(labels))
+        for c in classes:
+            m = labels == c
+            ranks = rankdata(all_scores[0][m])
+            z[m] = (ranks - ranks.mean()) / (ranks.std() or 1.0)
+        same = labels[1:] == labels[:-1]
+        lag1 = (float(np.corrcoef(z[:-1][same], z[1:][same])[0, 1])
+                if same.sum() > 2 else float("nan"))
+        n_runs_min = min(
+            int((np.diff(np.r_[0, (labels == c).astype(int)]) == 1).sum()) for c in classes)
+        positions = [np.flatnonzero(labels == c) for c in classes]
+        for block in DEPENDENCE_BLOCK_LENGTHS:
+            rng = np.random.default_rng(bootstrap_seed)
+            reps = np.empty(B)
+            for b in range(B):
+                parts = []
+                for pos in positions:
+                    starts = rng.integers(0, len(pos), -(-len(pos) // block))
+                    offs = (starts[:, None] + np.arange(block)).ravel()[:len(pos)]
+                    parts.append(pos[offs % len(pos)])
+                idx = np.concatenate(parts)
+                reps[b] = np.mean([_rank_auc(y[idx], s[idx]) for s in all_scores])
+            lo, hi = np.percentile(reps, [2.5, 97.5])
+            rows.append({"w": w, "block_len": block, "lag1_autocorr": lag1,
+                         "n_runs_min": n_runs_min, "ci_lo": float(lo), "ci_hi": float(hi)})
     return pd.DataFrame(rows)
 
 
@@ -894,11 +989,25 @@ def build_frontier_table(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0,
 
 # --- Aggregate builder + campaign-report CLI plumbing ------------------------
 
-def build_windowed_tables(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0) -> dict:
-    """Build all four windowed-variant report tables from whatever campaign
+def committed_per_flow_seconds(ws: Workspace) -> "float | None":
+    """Per-flow ``marginal_s`` already recorded in `compute_frontier.csv`, if any."""
+    import pandas as pd
+
+    path = _windowed_dir(ws) / _TABLE_FILENAMES["frontier"]
+    if not path.exists():
+        return None
+    df = pd.read_csv(path, dtype={"row": str})
+    rows = df.loc[df["row"] == _PER_FLOW_ROW, "marginal_s"]
+    return float(rows.iloc[0]) if len(rows) and pd.notna(rows.iloc[0]) else None
+
+
+def build_windowed_tables(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0,
+                          time_probe_fn=None) -> dict:
+    """Build the windowed-variant report tables from whatever campaign
     runs are present under `results/tables/rebuild/windowed/`.
 
-    Returns ``{"detection", "attribution", "contamination", "frontier"}``,
+    Returns ``{"detection", "attribution", "contamination", "dependence",
+    "frontier"}``,
     one `pd.DataFrame` each (see the individual `build_*` docstrings).
     """
     detection = build_detection_table(ws, B=B, bootstrap_seed=bootstrap_seed)
@@ -906,7 +1015,9 @@ def build_windowed_tables(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0)
         "detection": detection,
         "attribution": build_windowed_attribution_table(ws, B=B, bootstrap_seed=bootstrap_seed),
         "contamination": build_contamination_table(ws),
+        "dependence": build_window_dependence_table(ws, bootstrap_seed=bootstrap_seed),
         "frontier": build_frontier_table(ws, B=B, bootstrap_seed=bootstrap_seed,
+                                          time_probe_fn=time_probe_fn,
                                           detection_df=detection),
     }
 
@@ -916,6 +1027,7 @@ _TABLE_FILENAMES = {
     "attribution": "windowed_attribution.csv",
     "contamination": "contamination_curve.csv",
     "frontier": "compute_frontier.csv",
+    "dependence": "window_dependence.csv",
 }
 
 
@@ -966,13 +1078,14 @@ def emit_frontier_pgfplots(frontier_df) -> str:
 
 
 def write_windowed_tables(ws: Workspace, tables: dict, B: int = None,
-                           bootstrap_seed: int = None) -> dict:
-    """Write the four windowed tables to `.../windowed/*.csv` + provenance sidecars."""
+                           bootstrap_seed: int = None, per_flow_timing: str = None) -> dict:
+    """Write the windowed tables to `.../windowed/*.csv` + provenance sidecars."""
     from .provenance import write_provenance
 
     d = _windowed_dir(ws)
     d.mkdir(parents=True, exist_ok=True)
-    params = {"bootstrap": B, "bootstrap_seed": bootstrap_seed}
+    params = {"bootstrap": B, "bootstrap_seed": bootstrap_seed,
+              "per_flow_timing": per_flow_timing}
     paths = {}
     for name, df in tables.items():
         out = d / _TABLE_FILENAMES[name]
@@ -1066,8 +1179,8 @@ def windowed_pure_block_gate_auc(ws: Workspace) -> dict:
     Flooding/Sybil/Wormhole Attack or Normal Traffic (dropping
     Blackhole-majority windows, which are not part of the "pure block"
     claim), scores `Normal vs. attack` AUC on `Z2_all_three`, and averages
-    the per-run AUC over that W's ordered runs (same "each run is one seed"
-    convention as `build_detection_table`). Returns ``{w: {"auc": float,
+    the per-run AUC over that W's ordered runs (a plain mean
+    over runs). Returns ``{w: {"auc": float,
     "n_runs": int}}``.
     """
     import numpy as np
@@ -1109,7 +1222,7 @@ def windowed_shuffle_oracle_summary(ws: Workspace) -> dict:
     computes an ORACLE that scores each shuffled window by its (otherwise
     hidden) TRUE attack_frac directly (`roc_auc_score(majority_label !=
     Normal, attack_frac)`), averaged per-run over that W's shuffled runs
-    (same "each run is one seed" convention as `build_detection_table`).
+    (a plain mean over runs).
     Returns ``{w: {"frac_lo", "frac_hi", "oracle_auc_mean", "n_runs"}}``.
     """
     import numpy as np
@@ -1224,6 +1337,19 @@ def _render_windowed_report(tables: dict, determinism: dict,
         "(Determinism) for the measured campaign-scale confirmation."
     )
     lines.append("")
+    lines.append(
+        "**CI method.** 95% bootstrap intervals stratified on the window majority label. "
+        "Ordered repeats contain the same windows, so the windows are resampled once per "
+        "replicate and that resample is applied to every repeat; only sparse-Rips noise "
+        "differs between repeats, and `std` measures that noise, not sampling "
+        "uncertainty. Shuffled runs contain different windows and are resampled "
+        "independently (their shared underlying flows are not modeled). Until 2026-11-23 "
+        "the ordered intervals resampled each repeat independently, which counted the "
+        "same windows once per repeat and made them about 3x too narrow. The "
+        "intervals treat windows as independent, but neighbouring windows are correlated, so "
+        "they are still optimistic: see the window-dependence table in §2."
+    )
+    lines.append("")
     lines.append("**Documented deviations from the original task briefs:**")
     lines.append("")
     for i, (title, body) in enumerate(WINDOWED_DEVIATIONS, 1):
@@ -1274,6 +1400,27 @@ def _render_windowed_report(tables: dict, determinism: dict,
         "All four W pass the ≥0.85 sanity-gate expectation (task-4 brief's "
         "gate)."
     )
+    lines.append("")
+
+    dep = tables["dependence"]
+    lines.append(
+        "**Window dependence** (ordered arm, all_three znorm, "
+        "`results/tables/rebuild/windowed/window_dependence.csv`). Lag-1 is the pooled "
+        "within-class rank correlation between adjacent same-label windows; the block "
+        "columns are within-class circular block-bootstrap 95% CIs of the mean AUC (block 1 "
+        "= independent windows). Each class has only a few contiguous runs, so the block "
+        "intervals are indicative, not definitive."
+    )
+    lines.append("")
+    lines.append("| W | lag-1 | fewest runs in any class | "
+                 + " | ".join(f"block {b}" for b in DEPENDENCE_BLOCK_LENGTHS) + " |")
+    lines.append("| ---: | ---: | ---: | " + " | ".join("---" for _ in DEPENDENCE_BLOCK_LENGTHS)
+                 + " |")
+    for w, sub in dep.groupby("w"):
+        cis = " | ".join(f"[{r['ci_lo']:.4f}, {r['ci_hi']:.4f}]"
+                         for _, r in sub.sort_values("block_len").iterrows())
+        lines.append(f"| {int(w)} | {sub['lag1_autocorr'].iloc[0]:.2f} "
+                     f"| {int(sub['n_runs_min'].iloc[0])} | {cis} |")
     lines.append("")
 
     # --- 3. Frontier -----------------------------------------------------------
@@ -1329,7 +1476,9 @@ def _render_windowed_report(tables: dict, determinism: dict,
     lines.append(
         "pgfplots snippet: `results/tables/rebuild/paper_snippets/"
         "windowed_frontier_pgfplots.tex` (from `emit_frontier_pgfplots`, generated "
-        "fresh from `compute_frontier.csv` at report-build time)."
+        "fresh from `compute_frontier.csv` at report-build time). **Do not use it in the "
+        "manuscript:** it draws between-repeat std (sparse-Rips noise) as the error bar and the "
+        "W2-only per-flow cost; it is superseded by `full_path_frontier_pgfplots.tex`."
     )
     lines.append("")
 
@@ -1531,12 +1680,27 @@ def _render_windowed_report(tables: dict, determinism: dict,
             if len(dom_row):
                 dom = dom_row.iloc[0]["manifold"]
                 flag = "" if dom == expected else " **FLIP**"
+                others = all_nan[~all_nan["dominant"].astype(bool)].dropna(subset=["mean"])
+                if len(others):
+                    runner_up = others.sort_values("mean").iloc[-1]
+                    if dom_row.iloc[0]["ci_lo"] <= runner_up["ci_hi"]:
+                        flag += " (CIs overlap)"
                 per_w.append(f"W={int(w)}: {dom}{flag}")
             elif len(all_nan) and all_nan["mean"].isna().all():
                 per_w.append(f"W={int(w)}: NaN (never a window majority)")
             else:
                 per_w.append(f"W={int(w)}: no dominant manifold recorded")
         lines.append(f"- {attack} (per-flow expectation: {expected}): " + "; ".join(per_w))
+    lines.append("")
+
+    at_chance = dominant_at_chance(attribution)
+    cells = "; ".join(
+        f"{r['attack_class']} W={int(r['w'])} ({r['manifold']} {r['mean']:.4f} "
+        f"[{r['ci_lo']:.4f}, {r['ci_hi']:.4f}])" for _, r in at_chance.iterrows())
+    lines.append(
+        "**Dominant manifold not distinguishable from chance** (95% CI reaches AUC 0.5): "
+        f"{cells or 'none'}."
+    )
     lines.append("")
 
     # --- 7. Determinism ----------------------------------------------------------

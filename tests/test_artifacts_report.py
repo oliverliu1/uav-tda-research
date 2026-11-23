@@ -144,7 +144,7 @@ def test_report_lists_every_unresolved_attribution(frames):
     text = artifacts.render_artifacts_report(frames, _inventory())
     un = artifacts.unresolved_attributions(frames["windowed_attribution"],
                                            frames["exact_per_attack"])
-    assert len(un) == 4
+    assert len(un) == 9
     for _, r in un.iterrows():
         line = next((ln for ln in text.splitlines()
                      if ln.startswith(f"  - {r['attack_class'].replace(' Attack', '')} "
@@ -155,7 +155,9 @@ def test_report_lists_every_unresolved_attribution(frames):
         assert f"{r['runner_up_auc']:.4f} [{r['runner_up_ci_lo']:.4f}, " \
                f"{r['runner_up_ci_hi']:.4f}]" in line
         assert f"difference {r['difference']:.4f}" in line
-    assert "4 attribution cells" in text
+    assert "9 attribution cells" in text
+    assert "not a paired test" in text
+    assert "*Windowed intervals:*" in text
 
 
 def test_report_unresolved_attribution_zero_case(frames):

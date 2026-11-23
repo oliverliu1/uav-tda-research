@@ -1,7 +1,7 @@
 {
   "artifact": "compute_frontier.csv",
-  "created_utc": "2026-09-22T08:18:27.954491+00:00",
-  "git_sha": "e8591f049d9d466480b9e959db09988d712b23ef",
+  "created_utc": "2026-11-23T21:23:16.430899+00:00",
+  "git_sha": "b08837ba5f06212e2da6751eb7cc7289dae65690",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",
@@ -10,7 +10,8 @@
   },
   "params": {
     "bootstrap": 2000,
-    "bootstrap_seed": 0
+    "bootstrap_seed": 0,
+    "per_flow_timing": "reused"
   },
   "uav_tda_version": "0.1.0"
 }
