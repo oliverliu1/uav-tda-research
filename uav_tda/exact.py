@@ -595,7 +595,7 @@ def assemble_distances(exact_dir: Path, split: str) -> pd.DataFrame:
 
 
 def _binary_auc_table(scored_frames: "dict[str, pd.DataFrame]", B: int, bootstrap_seed: int) -> pd.DataFrame:
-    """7 subsets x {raw, znorm}: AUC + 95% CI over a single test-set cluster.
+    """7 subsets x {raw, znorm}: AUC + 95% CI over the test-set flows.
 
     ``scored_frames`` maps scoring name ("raw"/"znorm") to the (already
     z-normalized where applicable) test frame carrying `label`, the
@@ -692,7 +692,7 @@ def build_exact_tables(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0) ->
     (`metrics.znorm_stats_from_val`), and builds:
 
     - `exact_binary_auc`: 7 subsets x {raw, znorm} AUC + 95% bootstrap CI
-      (single-cluster bootstrap over the full test set).
+      (stratified bootstrap over the full test set's flows).
     - `exact_per_attack_auc`: 4 attacks x 3 manifolds one-vs-rest AUC (raw)
       + CI + a `dominant` flag (the highest-AUC manifold per attack).
     - `exact_vs_probe`: exact vs the Phase-4 10-seed probe mean/std

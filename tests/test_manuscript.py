@@ -70,6 +70,16 @@ def test_shared_bootstrap_matches_independent_bootstrap_for_a_single_run():
     ) == manuscript.bootstrap_mean_auc_ci([(y, scores)], B=300, bootstrap_seed=0)
 
 
+def test_shared_bootstrap_averages_repeats_with_different_scores():
+    y, scores = _overlapping_scores()
+    other = scores + np.random.default_rng(9).normal(0, 0.5, len(scores))
+    both = manuscript.bootstrap_shared_mean_auc_ci(y, [scores, other], B=300, bootstrap_seed=0)
+    ends = [manuscript.bootstrap_shared_mean_auc_ci(y, [s], B=300, bootstrap_seed=0)
+            for s in (scores, other)]
+    assert min(e[0] for e in ends) <= both[0] <= max(e[0] for e in ends) + 0.01
+    assert both[0] < both[1]
+
+
 def test_shared_bootstrap_stratifies_on_multiclass_labels():
     y = np.array([0] * 98 + [1] * 2)
     labels = np.array(["N"] * 98 + ["A", "B"])

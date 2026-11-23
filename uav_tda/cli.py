@@ -108,7 +108,10 @@ def _cmd_windowed_report(args: argparse.Namespace) -> int:
     tables = windowed.build_windowed_tables(
         ws, B=args.bootstrap,
         time_probe_fn=None if recorded is None else (lambda: recorded))
-    paths = windowed.write_windowed_tables(ws, tables, B=args.bootstrap, bootstrap_seed=0)
+    timing = "measured" if recorded is None else "reused"
+    print(f"per-flow timing: {timing}")
+    paths = windowed.write_windowed_tables(ws, tables, B=args.bootstrap, bootstrap_seed=0,
+                                           per_flow_timing=timing)
     for name, path in paths.items():
         print(f"wrote {path}")
     report_paths = windowed.write_windowed_report(ws, tables)

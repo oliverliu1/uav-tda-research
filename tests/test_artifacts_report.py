@@ -156,6 +156,8 @@ def test_report_lists_every_unresolved_attribution(frames):
                f"{r['runner_up_ci_hi']:.4f}]" in line
         assert f"difference {r['difference']:.4f}" in line
     assert "9 attribution cells" in text
+    assert "not a paired test" in text
+    assert "*Windowed intervals:*" in text
 
 
 def test_report_unresolved_attribution_zero_case(frames):

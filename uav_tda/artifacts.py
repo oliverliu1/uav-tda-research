@@ -573,7 +573,7 @@ def render_artifacts_report(frames: dict, inventory) -> str:
         tie_lines = [
             f"- *Unresolved attributions:* in {k} attribution cell{'s' if k != 1 else ''} "
             f"(of {n_cells} attack × block cells) the dominant manifold's CI low is at or below "
-            f"the runner-up's CI high (the CIs overlap), so the dominance marked in the "
+            f"the runner-up's CI high (the CIs overlap; a conservative rule, not a paired test), so the dominance marked in the "
             f"attribution figure should not be read as a resolved attribution there:"]
         for _, u in unresolved.iterrows():
             tie_lines.append(
@@ -625,6 +625,10 @@ def render_artifacts_report(frames: dict, inventory) -> str:
         "**Caption-level caveats.**",
         "",
         *tie_lines,
+        "- *Windowed intervals:* ordered-arm CIs resample each window once per replicate across "
+        "all repeats and treat windows as independent. Neighbouring windows are correlated, so "
+        "they are optimistic; `paper/WINDOWED_RESULTS.md` §2 gives block-bootstrap intervals, and "
+        "§6 lists dominant cells whose CI reaches AUC 0.5.",
         f"- *Windowed cost scope:* the latency harness's windowed `total_s` is Rips + W2 "
         f"(per-dimension diagram slicing inside the timed W2 call; no top-K truncation). It "
         f"has no scaler stage: window flows are read pre-scaled, so scaling them is untimed "
