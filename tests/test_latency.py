@@ -389,3 +389,208 @@ def test_cli_registers_latency_subcommand_with_flags():
 
     defaults = parser.parse_args(["latency"])
     assert defaults.n == 30
+
+
+# ---------------------------------------------------------------------------
+# Pi harness: fresh baselines, exact arm, progress + watchdog
+# ---------------------------------------------------------------------------
+
+
+def test_fresh_baselines_are_computed_from_the_workspace_reference_cloud(tmp_path, monkeypatch):
+    from uav_tda import tda as tda_module
+
+    ws = _make_per_flow_workspace(tmp_path)
+    seen = {}
+
+    def spy(query_point, reference_points, max_edge, max_simplex_dim, sparse):
+        seen.setdefault("clouds", []).append(np.vstack([reference_points, query_point]))
+        seen.setdefault("sparse", []).append(sparse)
+        return _fake_persistence_for_point(
+            query_point, reference_points, max_edge, max_simplex_dim, sparse)
+
+    monkeypatch.setattr(tda_module, "_persistence_for_point", spy)
+    committed = latency._load_baselines_for_harness(ws)
+    assert "clouds" not in seen  # committed baselines are loaded, not computed
+    fresh = latency._load_baselines_for_harness(ws, fresh=True)
+
+    idx = np.load(ws.outputs_dir / "reference_indices.npy")
+    for m, cloud, sparse in zip(config.MANIFOLDS, seen["clouds"], seen["sparse"]):
+        expected = pd.read_csv(ws.outputs_dir / f"{m}_train.csv").to_numpy()[idx]
+        np.testing.assert_array_equal(cloud, expected)  # exactly the reference cloud, in order
+        assert sparse == config.SPARSE_RIPS_EPSILON.get(m)
+        assert set(fresh[m]) == set(range(config.MAX_HOM_DIM[m] + 1))
+    np.testing.assert_allclose(fresh["c2"][1], [[0.2, 0.8]])
+    assert committed["c2"][1].shape == (2, 2)
+
+
+def test_missing_committed_baselines_fall_back_to_this_workspace(tmp_path, _patch_per_flow_backends):
+    ws = _make_per_flow_workspace(tmp_path)
+    (ws.tables_dir / "rebuild" / "exact" / "baselines_manifest.json").unlink()
+    assert latency.baseline_source(ws) == "fresh"
+    assert latency._load_baselines_for_harness(ws)["c2"][0].shape == (1, 2)
+
+
+def test_per_flow_exact_config_uses_full_diagrams_and_tight_delta(tmp_path, monkeypatch):
+    import gudhi.hera as hera_module
+
+    from uav_tda import exact
+    from uav_tda import tda as tda_module
+
+    ws = _make_per_flow_workspace(tmp_path)
+    n_bars = config.PROBE_TOP_K + 7
+
+    def many_bars(query_point, reference_points, max_edge, max_simplex_dim, sparse):
+        births = np.linspace(0.0, 0.1, n_bars)
+        return np.column_stack([np.zeros(n_bars), births, births + np.linspace(0.1, 0.5, n_bars)])
+
+    calls = []
+    monkeypatch.setattr(tda_module, "_persistence_for_point", many_bars)
+    monkeypatch.setattr(
+        hera_module, "wasserstein_distance",
+        lambda d1, d2, order, internal_p, delta: calls.append((len(d1), delta)) or 0.1)
+
+    latency.time_per_flow_decision(ws, n=1)
+    assert max(c[0] for c in calls) == config.PROBE_TOP_K
+    assert {c[1] for c in calls} == {config.PROBE_DELTA}
+
+    calls.clear()
+    latency.time_per_flow_decision(ws, n=1, top_k=None, delta=exact.PRIMARY_DELTA)
+    assert max(c[0] for c in calls) == n_bars
+    assert {c[1] for c in calls} == {exact.PRIMARY_DELTA}
+
+
+def _stub_arms(monkeypatch):
+    calls = []
+
+    def fake_per_flow(ws, n=30, rng_seed=0, **kw):
+        calls.append(kw)
+        data = {"row_idx": [0, 1]}
+        for m in config.MANIFOLDS:
+            for s in ("scaler_s", "rips_s", "slice_s", "w2_s", "total_s"):
+                data[f"{m}_{s}"] = [0.1, 0.2]
+        data["total_s"] = [0.3, 0.6]
+        return pd.DataFrame(data)
+
+    def fake_windowed(ws, w, n=30, rng_seed=0, **kw):
+        data = {"window_idx": [0, 1], "start_pos": [0, w], "baseline_setup_s": [1.0, 1.0]}
+        for m in config.MANIFOLDS:
+            for s in ("rips_s", "w2_s", "total_s"):
+                data[f"{m}_{s}"] = [0.01, 0.02]
+        data["total_s"] = [0.03, 0.06]
+        return pd.DataFrame(data)
+
+    monkeypatch.setattr(latency, "time_per_flow_decision", fake_per_flow)
+    monkeypatch.setattr(latency, "time_windowed_decision", fake_windowed)
+    return calls
+
+
+def test_run_latency_default_has_no_exact_arm(tmp_path, monkeypatch):
+    ws = _make_per_flow_workspace(tmp_path)
+    calls = _stub_arms(monkeypatch)
+    latency.run_latency(ws, n=2, watchdog_s=0)
+    host = latency.machine_info()["hostname"]
+    rebuild = ws.tables_dir / "rebuild"
+    assert len(calls) == 1
+    assert not (rebuild / f"latency_{host}_per_flow_exact.csv").exists()
+    summary = pd.read_csv(rebuild / f"latency_{host}.csv")
+    assert set(summary["mode"]) == {"per_flow", "windowed"}
+    side = json.loads((rebuild / f"latency_{host}.csv.provenance.json").read_text())
+    assert side["params"]["baseline_source"] == "committed"
+
+
+def test_run_latency_exact_arm_and_fresh_baselines_are_recorded(
+    tmp_path, monkeypatch, _patch_per_flow_backends,
+):
+    from uav_tda import exact
+
+    ws = _make_per_flow_workspace(tmp_path)
+    calls = _stub_arms(monkeypatch)
+    report = latency.run_latency(
+        ws, n=2, fresh_baselines=True, exact_arm=True, watchdog_s=0)
+    host = latency.machine_info()["hostname"]
+    rebuild = ws.tables_dir / "rebuild"
+    # one baseline realization shared by both per-flow arms
+    assert len(calls) == 2
+    assert calls[0]["baselines"] is calls[1]["baselines"]
+    assert calls[1]["top_k"] is None and calls[1]["delta"] == exact.PRIMARY_DELTA
+
+    summary = pd.read_csv(rebuild / f"latency_{host}.csv")
+    ex = summary[(summary["mode"] == "per_flow_exact") & (summary["stage"] == "total_s")]
+    assert len(ex) == 1 and ex.iloc[0]["n"] == 2
+    detail = rebuild / f"latency_{host}_per_flow_exact.csv"
+    side = json.loads(Path(str(detail) + ".provenance.json").read_text())
+    assert side["params"]["baseline_source"] == "fresh"
+    assert side["params"]["delta"] == exact.PRIMARY_DELTA and side["params"]["top_k"] is None
+
+    text = report.read_text()
+    assert "0.9082 configuration" in text
+    assert "Baseline source: **fresh**" in text
+
+
+def test_progress_lines_name_each_stage_on_stderr(tmp_path, monkeypatch, capsys):
+    ws = _make_per_flow_workspace(tmp_path)
+    _stub_arms(monkeypatch)
+    latency.run_latency(ws, n=2, watchdog_s=0)
+    err = capsys.readouterr().err
+    for needle in ("baselines", "per_flow", "W=25", "W=200"):
+        assert needle in err
+
+
+def test_per_flow_progress_names_each_flow_outside_the_timed_stages(
+    tmp_path, capsys, _patch_per_flow_backends,
+):
+    ws = _make_per_flow_workspace(tmp_path, n_test=3)
+    seen = []
+    latency.time_per_flow_decision(ws, n=3, progress=seen.append)
+    assert len(seen) == 3
+    assert seen[0].startswith("per_flow 1/3: flow ")
+
+
+def test_watchdog_kills_a_stuck_step_and_names_it():
+    import subprocess
+    import sys
+
+    code = (
+        "import time\n"
+        "from uav_tda.latency import Watchdog\n"
+        "w = Watchdog(1)\n"
+        "w.step('stuck step here')\n"
+        "time.sleep(60)\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=50)
+    assert res.returncode != 0
+    assert "stuck step here" in res.stderr
+    assert "Timeout" in res.stderr and "line 5" in res.stderr
+
+
+def test_watchdog_rearms_on_each_step_and_cancels():
+    import subprocess
+    import sys
+
+    code = (
+        "import time\n"
+        "from uav_tda.latency import Watchdog\n"
+        "w = Watchdog(2)\n"
+        "for i in range(3):\n"
+        "    w.step(f'step {i}')\n"
+        "    time.sleep(1)\n"
+        "w.cancel()\n"
+        "time.sleep(2.5)\n"
+        "print('survived')\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=50)
+    assert res.returncode == 0, res.stderr
+    assert "survived" in res.stdout
+
+
+def test_cli_latency_passes_new_flags(monkeypatch, tmp_path):
+    got = {}
+    monkeypatch.setattr(latency, "run_latency",
+                        lambda ws, **kw: got.update(kw) or tmp_path / "x.md")
+    parser = cli.build_parser()
+    args = parser.parse_args(["latency", "--root", str(tmp_path), "--n", "4",
+                              "--fresh-baselines", "--exact-arm", "--watchdog", "60"])
+    assert args.func(args) == 0
+    assert got == {"n": 4, "fresh_baselines": True, "exact_arm": True, "watchdog_s": 60.0}
+    d = parser.parse_args(["latency"])
+    assert (d.fresh_baselines, d.exact_arm, d.watchdog) == (False, False, 900.0)

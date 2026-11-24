@@ -35,10 +35,12 @@ machine (no full-split diagram loads anywhere in this module).
 """
 from __future__ import annotations
 
+import faulthandler
 import json
 import logging
 import os
 import pickle
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -51,6 +53,43 @@ from .workspace import Workspace
 log = logging.getLogger("uav_tda.latency")
 
 _NORMAL_LABEL = "Normal Traffic"
+
+DEFAULT_WATCHDOG_S = 900.0
+
+
+# ---------------------------------------------------------------------------
+# Progress + watchdog
+# ---------------------------------------------------------------------------
+
+
+class Watchdog:
+    """Print each step to stderr and kill the process if one step never ends.
+
+    hera can loop forever inside native code on near-identical diagrams (see
+    `uav_tda.hangcheck`), where no Python-level timeout can interrupt it.
+    `faulthandler.dump_traceback_later(exit=True)` fires from a C thread, so
+    it still works: the traceback says whether Rips or Wasserstein is stuck,
+    and the last printed step says which stage/flow. Steps are only ever
+    announced OUTSIDE the timed regions. ``timeout_s`` <= 0 disables the
+    timer but keeps the progress lines.
+    """
+
+    def __init__(self, timeout_s: float = DEFAULT_WATCHDOG_S):
+        self.timeout_s = float(timeout_s)
+        self.armed = False
+
+    def step(self, label: str) -> None:
+        print(f"[latency] {label}", file=sys.stderr, flush=True)
+        if self.timeout_s > 0:
+            # re-arming replaces the previous timer
+            faulthandler.dump_traceback_later(
+                self.timeout_s, exit=True, file=sys.__stderr__)
+            self.armed = True
+
+    def cancel(self) -> None:
+        if self.armed:
+            faulthandler.cancel_dump_traceback_later()
+            self.armed = False
 
 
 # ---------------------------------------------------------------------------
@@ -230,24 +269,58 @@ def _load_scalers(ws: Workspace) -> "dict[str, object]":
     return scalers
 
 
-def _load_baselines_for_harness(ws: Workspace) -> dict:
+def baseline_source(ws: Workspace, fresh: bool = False) -> str:
+    """"committed" (the exact campaign's persisted baselines) or "fresh" (built here)."""
+    manifest = ws.tables_dir / "rebuild" / "exact" / "baselines_manifest.json"
+    return "committed" if manifest.exists() and not fresh else "fresh"
+
+
+def _compute_fresh_baselines(ws: Workspace) -> dict:
+    """Baseline barcodes of the workspace's own 500-point reference cloud.
+
+    The same construction as `probe._load_baseline_barcodes` (Rips on exactly
+    the reference points, production sparse config, per-dim slices), but
+    relative to ``ws`` instead of the repo-fixed outputs directory.
+    """
+    from . import tda as tda_module
+
+    max_edge_lengths = json.loads((ws.outputs_dir / "max_edge_lengths.json").read_text())
+    clouds = tda_module.compute_reference_clouds(
+        ws, np.load(ws.outputs_dir / "reference_indices.npy"))
+    baselines: dict = {}
+    for m in config.MANIFOLDS:
+        hd = config.MAX_HOM_DIM[m]
+        # {all but the last point} u {last point} == the reference cloud itself
+        diag = tda_module._persistence_for_point(
+            clouds[m][-1], clouds[m][:-1], max_edge_lengths[m], hd + 1,
+            config.SPARSE_RIPS_EPSILON.get(m),
+        )
+        baselines[m] = {
+            dim: probe._slice_dim(diag, dim, max_edge_lengths[m]) for dim in range(hd + 1)
+        }
+    return baselines
+
+
+def _load_baselines_for_harness(ws: Workspace, fresh: bool = False) -> dict:
     """Per-manifold per-dim baseline barcodes for the per-flow W2 stage.
 
-    Prefers the Track-A campaign's already-persisted baselines
-    (`results/tables/rebuild/exact/baselines_*.npy`, loaded via
-    `exact.load_baselines` -- same shape/convention as `probe.
-    _load_baseline_barcodes`'s return value, computed once and reused here
-    rather than re-running sparse-Rips) if present; otherwise computes fresh
-    via `probe._load_baseline_barcodes` (e.g. on a companion box without a
-    prior exact campaign).
+    Reuses the Track-A campaign's persisted baselines if present, unless
+    ``fresh``; otherwise builds them on this machine.
+
+    Use ``fresh=True`` on any machine other than the one that persisted the
+    baselines. Diagrams that are bit-identical on one machine can differ in
+    the last bit from another machine's, and hera may then never terminate
+    (`uav_tda.hangcheck`; first seen on a Raspberry Pi 5, 2026-11-23).
     """
-    exact_dir = ws.tables_dir / "rebuild" / "exact"
-    if (exact_dir / "baselines_manifest.json").exists():
+    if baseline_source(ws, fresh) == "committed":
         from . import exact as exact_module  # noqa: PLC0415
 
-        return exact_module.load_baselines(exact_dir)
-    max_edge_lengths = json.loads((ws.outputs_dir / "max_edge_lengths.json").read_text())
-    return probe._load_baseline_barcodes(max_edge_lengths)
+        return exact_module.load_baselines(ws.tables_dir / "rebuild" / "exact")
+    return _compute_fresh_baselines(ws)
+
+
+def _truncate(diagram_dim: np.ndarray, top_k: "int | None") -> np.ndarray:
+    return diagram_dim if top_k is None else probe.truncate_top_k(diagram_dim, top_k)
 
 
 def _raw_manifold_vectors(
@@ -278,7 +351,11 @@ def _raw_manifold_vectors(
 # ---------------------------------------------------------------------------
 
 
-def time_per_flow_decision(ws: Workspace, n: int = 30, rng_seed: int = 0) -> pd.DataFrame:
+def time_per_flow_decision(
+    ws: Workspace, n: int = 30, rng_seed: int = 0, *,
+    top_k: "int | None" = config.PROBE_TOP_K, delta: float = config.PROBE_DELTA,
+    baselines: "dict | None" = None, progress=None, label: str = "per_flow",
+) -> pd.DataFrame:
     """Full per-flow production inference path, timed per stage per manifold.
 
     Per sampled test flow, per manifold, the PAPER'S DEPLOYED config
@@ -295,6 +372,11 @@ def time_per_flow_decision(ws: Workspace, n: int = 30, rng_seed: int = 0) -> pd.
        homology dimension.
     4. hera Wasserstein-2 (`delta=PROBE_DELTA`) vs the (once-loaded)
        baseline barcode, summed over dims.
+
+    ``top_k=None, delta=exact.PRIMARY_DELTA`` times the full-test campaign's
+    scoring configuration instead (full diagrams, high-precision W2 -- the
+    configuration behind the 0.9082 headline AUC); Rips is identical.
+    ``progress(label)`` is called before each flow, outside the timed calls.
 
     Setup (scalers, the 500-point reference cloud, baseline barcodes) is
     loaded ONCE before the timed loop; only the transform/Rips/slice/W2
@@ -313,7 +395,8 @@ def time_per_flow_decision(ws: Workspace, n: int = 30, rng_seed: int = 0) -> pd.
     max_edge_lengths = json.loads((ws.outputs_dir / "max_edge_lengths.json").read_text())
     reference_idx = np.load(ws.outputs_dir / "reference_indices.npy")
     reference_clouds = tda_module.compute_reference_clouds(ws, reference_idx)
-    baselines = _load_baselines_for_harness(ws)
+    if baselines is None:
+        baselines = _load_baselines_for_harness(ws)
     scalers = _load_scalers(ws)
 
     n_test = len(pd.read_csv(ws.outputs_dir / "labels_test.csv"))
@@ -325,6 +408,8 @@ def time_per_flow_decision(ws: Workspace, n: int = 30, rng_seed: int = 0) -> pd.
 
     rows = []
     for row_i, pos in enumerate(test_positions):
+        if progress is not None:
+            progress(f"{label} {row_i + 1}/{n_sample}: flow {int(pos)}")
         row: dict = {"row_idx": int(pos)}
         total_all = 0.0
         for m in config.MANIFOLDS:
@@ -345,7 +430,7 @@ def time_per_flow_decision(ws: Workspace, n: int = 30, rng_seed: int = 0) -> pd.
 
             t0 = time.perf_counter()
             flow_slices = [
-                probe.truncate_top_k(probe._slice_dim(diag, dim, max_edge), config.PROBE_TOP_K)
+                _truncate(probe._slice_dim(diag, dim, max_edge), top_k)
                 for dim in range(hd + 1)
             ]
             slice_s = time.perf_counter() - t0
@@ -353,9 +438,9 @@ def time_per_flow_decision(ws: Workspace, n: int = 30, rng_seed: int = 0) -> pd.
             t0 = time.perf_counter()
             total_w2 = 0.0
             for dim, flow_k in enumerate(flow_slices):
-                base_k = probe.truncate_top_k(baselines[m][dim], config.PROBE_TOP_K)
+                base_k = _truncate(baselines[m][dim], top_k)
                 total_w2 += float(
-                    wdist(flow_k, base_k, order=2.0, internal_p=2.0, delta=config.PROBE_DELTA)
+                    wdist(flow_k, base_k, order=2.0, internal_p=2.0, delta=delta)
                 )
             w2_s = time.perf_counter() - t0
 
@@ -377,7 +462,9 @@ def time_per_flow_decision(ws: Workspace, n: int = 30, rng_seed: int = 0) -> pd.
 # ---------------------------------------------------------------------------
 
 
-def time_windowed_decision(ws: Workspace, w: int, n: int = 30, rng_seed: int = 0) -> pd.DataFrame:
+def time_windowed_decision(
+    ws: Workspace, w: int, n: int = 30, rng_seed: int = 0, *, progress=None,
+) -> pd.DataFrame:
     """Full windowed production inference path, timed per stage per manifold.
 
     Baseline medoid setup (val-Normal windows -> per-manifold W2-medoid,
@@ -405,6 +492,8 @@ def time_windowed_decision(ws: Workspace, w: int, n: int = 30, rng_seed: int = 0
 
     max_edge_lengths = json.loads((ws.outputs_dir / "max_edge_lengths.json").read_text())
 
+    if progress is not None:
+        progress(f"windowed W={w}: building val-Normal baseline")
     t_setup0 = time.perf_counter()
     labels_val = load_labels_for_split(ws, "val").to_numpy()
     normal_mask = labels_val == _NORMAL_LABEL
@@ -432,6 +521,8 @@ def time_windowed_decision(ws: Workspace, w: int, n: int = 30, rng_seed: int = 0
 
     points_test = {m: load_split_manifold(ws, m, "test") for m in config.MANIFOLDS}
 
+    if progress is not None:
+        progress(f"windowed W={w}: timing {n_sample} windows")
     rows = []
     for pos in sample_positions:
         idx = test_windows[pos]
@@ -484,8 +575,13 @@ def _summary_rows_for_frame(mode: str, w, df: pd.DataFrame) -> list:
     return rows
 
 
-def _build_summary_table(per_flow_df: pd.DataFrame, windowed_frames: "dict[int, pd.DataFrame]") -> pd.DataFrame:
+def _build_summary_table(
+    per_flow_df: pd.DataFrame, windowed_frames: "dict[int, pd.DataFrame]",
+    per_flow_exact_df: "pd.DataFrame | None" = None,
+) -> pd.DataFrame:
     rows = _summary_rows_for_frame("per_flow", None, per_flow_df)
+    if per_flow_exact_df is not None:
+        rows.extend(_summary_rows_for_frame("per_flow_exact", None, per_flow_exact_df))
     for w, df_w in sorted(windowed_frames.items()):
         rows.extend(_summary_rows_for_frame("windowed", w, df_w))
     return pd.DataFrame(rows)
@@ -511,8 +607,8 @@ _COMPANION_ARTIFACTS = [
     "data.run_prep; the per-manifold outputs/scaler_{m}.pkl files on this repo are "
     "STALE -- fitted on a different, older feature schema -- and are NOT used)",
     "results/tables/rebuild/exact/baselines_*.npy + baselines_manifest.json "
-    "(OPTIONAL -- reused if present; otherwise the harness computes fresh "
-    "baseline barcodes via probe._load_baseline_barcodes on first run)",
+    "(OPTIONAL, and NOT to be used on a different machine: pass --fresh-baselines "
+    "there, see uav_tda/hangcheck.py)",
 ]
 
 _EXCLUDED_ARTIFACTS = (
@@ -530,7 +626,7 @@ def _fmt_stat_row(r: pd.Series) -> str:
 def _write_latency_report(
     ws: Workspace, info: dict, per_flow_df: pd.DataFrame,
     windowed_frames: "dict[int, pd.DataFrame]", summary_df: pd.DataFrame, n: int,
-    render_note: "str | None" = None,
+    render_note: "str | None" = None, baseline_src: "str | None" = None,
 ) -> Path:
     """Render `paper/LATENCY_RESULTS.md` from already-computed frames.
 
@@ -658,6 +754,28 @@ def _write_latency_report(
             lines.append(_fmt_stat_row(row.iloc[0]))
     lines.append("")
 
+    if baseline_src:
+        lines.append(f"Baseline source: **{baseline_src}** (committed = the exact campaign's "
+                     "persisted barcodes; fresh = built on this machine before timing).")
+        lines.append("")
+    ex_summary = summary_df[summary_df["mode"] == "per_flow_exact"]
+    if len(ex_summary):
+        lines.append("### Per-flow arm, 0.9082 configuration")
+        lines.append("")
+        lines.append(
+            "Same sampled flows, Rips construction and baselines, scored like the full-test "
+            "campaign behind the 0.9082 headline AUC (`paper/EXACT_RESULTS.md`): full diagrams "
+            "(no top-K) and hera delta<=0.01. Rips is re-run, not reused from the arm above."
+        )
+        lines.append("")
+        lines.append("| Stage | mean (s) | median (s) | p95 (s) | n |")
+        lines.append("| :--- | ---: | ---: | ---: | ---: |")
+        for col in ordered_cols:
+            row = ex_summary[ex_summary["stage"] == col]
+            if len(row):
+                lines.append(_fmt_stat_row(row.iloc[0]))
+        lines.append("")
+
     # --- 3. Windowed arm ---------------------------------------------------
     lines.append("## 3. Windowed arm")
     lines.append("")
@@ -770,7 +888,7 @@ def _write_latency_report(
     lines.append("")
     lines.append("```bash")
     lines.append("pip install -e .")
-    lines.append("uav-tda latency")
+    lines.append("uav-tda latency --fresh-baselines --exact-arm")
     lines.append("```")
     lines.append("")
     lines.append(
@@ -803,40 +921,77 @@ def _write_latency_report(
     return report_path
 
 
-def run_latency(ws: Workspace, n: int = 30) -> Path:
-    """Full latency harness: the per-flow arm + every W in `config.WINDOW_SIZES`.
+def run_latency(
+    ws: Workspace, n: int = 30, fresh_baselines: bool = False, exact_arm: bool = False,
+    watchdog_s: float = DEFAULT_WATCHDOG_S,
+) -> Path:
+    """Full latency harness: the per-flow arm(s) + every W in `config.WINDOW_SIZES`.
 
     Writes `results/tables/rebuild/latency_{hostname}.csv` (mean/median/p95
     summary per stage per mode) + one detail CSV per mode
-    (`latency_{hostname}_per_flow.csv`, `latency_{hostname}_w{W}.csv`), each
-    with a provenance sidecar, and `paper/LATENCY_RESULTS.md`. Returns the
-    report path.
+    (`latency_{hostname}_per_flow.csv`, `latency_{hostname}_w{W}.csv`, and
+    with ``exact_arm`` `latency_{hostname}_per_flow_exact.csv`), each with a
+    provenance sidecar, and `paper/LATENCY_RESULTS.md`. Returns the report
+    path. ``fresh_baselines`` builds the per-flow baselines on this machine;
+    ``watchdog_s`` kills the run if any single step takes longer (0 = off).
     """
+    from . import exact as exact_module
+
     ws.ensure()
     info = machine_info()
     hostname = info["hostname"]
-
     rebuild_dir = ws.tables_dir / "rebuild"
     rebuild_dir.mkdir(parents=True, exist_ok=True)
 
-    per_flow_df = time_per_flow_decision(ws, n=n)
-    per_flow_path = rebuild_dir / f"latency_{hostname}_per_flow.csv"
-    per_flow_df.to_csv(per_flow_path, index=False)
-    write_provenance(per_flow_path, {"mode": "per_flow", "n": n})
+    src = baseline_source(ws, fresh_baselines)
+    dog = Watchdog(watchdog_s)
+    try:
+        dog.step(f"baselines ({src})")
+        baselines = _load_baselines_for_harness(ws, fresh=fresh_baselines)
 
-    windowed_frames: "dict[int, pd.DataFrame]" = {}
-    for w in config.WINDOW_SIZES:
-        df_w = time_windowed_decision(ws, w, n=n)
-        windowed_frames[w] = df_w
-        w_path = rebuild_dir / f"latency_{hostname}_w{w}.csv"
-        df_w.to_csv(w_path, index=False)
-        write_provenance(w_path, {"mode": f"windowed_w{w}", "n": n, "w": w})
+        dog.step("per_flow: start")
+        per_flow_df = time_per_flow_decision(ws, n=n, baselines=baselines, progress=dog.step)
+        per_flow_path = rebuild_dir / f"latency_{hostname}_per_flow.csv"
+        per_flow_df.to_csv(per_flow_path, index=False)
+        write_provenance(per_flow_path, {
+            "mode": "per_flow", "n": n, "baseline_source": src,
+            "top_k": config.PROBE_TOP_K, "delta": config.PROBE_DELTA,
+        })
 
-    summary_df = _build_summary_table(per_flow_df, windowed_frames)
+        per_flow_exact_df = None
+        if exact_arm:
+            dog.step("per_flow_exact: start")
+            per_flow_exact_df = time_per_flow_decision(
+                ws, n=n, baselines=baselines, progress=dog.step, label="per_flow_exact",
+                top_k=None, delta=exact_module.PRIMARY_DELTA,
+            )
+            exact_path = rebuild_dir / f"latency_{hostname}_per_flow_exact.csv"
+            per_flow_exact_df.to_csv(exact_path, index=False)
+            write_provenance(exact_path, {
+                "mode": "per_flow_exact", "n": n, "baseline_source": src,
+                "top_k": None, "delta": exact_module.PRIMARY_DELTA,
+            })
+
+        windowed_frames: "dict[int, pd.DataFrame]" = {}
+        for w in config.WINDOW_SIZES:
+            dog.step(f"windowed W={w}: start")
+            df_w = time_windowed_decision(ws, w, n=n, progress=dog.step)
+            windowed_frames[w] = df_w
+            w_path = rebuild_dir / f"latency_{hostname}_w{w}.csv"
+            df_w.to_csv(w_path, index=False)
+            write_provenance(w_path, {"mode": f"windowed_w{w}", "n": n, "w": w})
+    finally:
+        dog.cancel()
+
+    summary_df = _build_summary_table(per_flow_df, windowed_frames, per_flow_exact_df)
     summary_path = rebuild_dir / f"latency_{hostname}.csv"
     summary_df.to_csv(summary_path, index=False)
-    write_provenance(summary_path, {"n": n, "hostname": hostname, "machine_info": info})
+    write_provenance(summary_path, {
+        "n": n, "hostname": hostname, "machine_info": info, "baseline_source": src,
+        "exact_arm": exact_arm,
+    })
 
-    report_path = _write_latency_report(ws, info, per_flow_df, windowed_frames, summary_df, n)
+    report_path = _write_latency_report(
+        ws, info, per_flow_df, windowed_frames, summary_df, n, baseline_src=src)
     log.info("latency harness complete: %s, %s", summary_path, report_path)
     return report_path

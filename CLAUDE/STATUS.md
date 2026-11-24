@@ -16,7 +16,7 @@ Human entry point: `README.md`.
   remains.
 - **Phase 8 (manuscript artifacts):** merged to `main` (PR #19, after the audit/cleanup PR #18;
   2026-11-10) (`uav-tda artifacts`): full-path frontier, unique window counts, operating points,
-  six figures, three new snippets, backfilled sidecars. Fast suite 175 passed / 0 skipped; ruff
+  six figures, three new snippets, backfilled sidecars. Fast suite 192 passed / 0 skipped; ruff
   clean; CI green (runner pinned to `ubuntu-24.04`). Report:
   `paper/MANUSCRIPT_ARTIFACTS.md`; figures: `results/figures/manuscript/`.
 
@@ -74,8 +74,10 @@ attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attributio
 
 - Per-flow headline estimand: decided 2026-11-11, full-test δ≤0.01 AUC 0.9082; the 10-seed probe
   0.8930 is used only where paired with the latency harness cost (frontier).
-- Companion-board latency run: Raspberry Pi 5 (4 GB, active cooler, 27 W supply, USB 3 SSD), setup in
-  progress 2026-11-23.
+- Companion-board latency run: Raspberry Pi 5 (4 GB, active cooler, 27 W supply, USB 3 SSD) is set up
+  and passed a 3-sample smoke test 2026-11-23 (not for citation). Next: `uav-tda hang-check` and
+  `uav-tda latency --fresh-baselines --exact-arm` (n=30) on the Pi. The report text still calls every
+  host "workstation-class", so copy back only the CSVs/sidecars; `artifacts` then needs `--latency-host`.
 - Cross-benchmark evaluation: decided, future work (reword the §V promise).
 
 Decided 2026-11-11: April stash dropped; `archive/poster_eda/node_modules` untracked

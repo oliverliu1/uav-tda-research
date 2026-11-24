@@ -26,10 +26,12 @@ No new runtime dependencies (e.g. POT) without an explicit decision.
 ## Commands
 
 ```bash
-make test        # fast suite (pytest -m "not slow"), ~2 min, 175 tests — run before claiming anything works
+make test        # fast suite (pytest -m "not slow"), ~2 min, 192 tests — run before claiming anything works
 make test-all    # includes slow monolith-equivalence tests (needs .cache/monolith-debug/)
 make lint        # ruff, safety tier
-uav-tda --help   # 16 subcommands; README "Quickstart" + "Results docs" list which command regenerates which paper/*.md
+uav-tda --help   # 17 subcommands; README "Quickstart" + "Results docs" list which command regenerates which paper/*.md
+uav-tda latency --fresh-baselines --exact-arm   # on any machine other than this Mac ALWAYS pass --fresh-baselines
+uav-tda hang-check   # counts hera non-terminations, committed vs machine-built baselines
 uav-tda artifacts [--root PATH]   # Phase 8: figures/tables/snippets + paper/MANUSCRIPT_ARTIFACTS.md from committed CSVs, no recompute
 ```
 
@@ -67,6 +69,9 @@ Golden-master `metrics.py` functions and the probe default path must not change 
   windowed Network diagrams are statistically, not bit, reproducible; exact-Rips surfaces
   (per-flow Physical; windowed C2/Physical) are bit-deterministic. Compare with calibrated
   tolerances, never equality. Manuscript disclosure item.
+- **hera can loop forever on near-identical diagrams** (differences from one rounding unit up to
+  ~1e-9; exactly equal ones return 0). Never compare diagrams built on one machine with baselines
+  built on another; a hang inside hera cannot be interrupted from Python (`latency.Watchdog`).
 - "Exact" Wasserstein means hera **δ≤0.01**; literal δ=0 is intractable (13/13 sampled flows
   timed out, ~30-day projection). The dataset has **no timestamps**; FlowID order is the
   temporal proxy (disclosed).

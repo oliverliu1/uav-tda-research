@@ -172,8 +172,24 @@ def _cmd_latency(args: argparse.Namespace) -> int:
 
     ws = _workspace_for(args)
     ws.ensure()
-    report_path = latency.run_latency(ws, n=args.n)
+    report_path = latency.run_latency(
+        ws, n=args.n, fresh_baselines=args.fresh_baselines, exact_arm=args.exact_arm,
+        watchdog_s=args.watchdog,
+    )
     print(f"wrote {report_path}")
+    return 0
+
+
+def _cmd_hang_check(args: argparse.Namespace) -> int:
+    """Count hera non-terminations, committed vs machine-built baselines."""
+    from . import hangcheck
+
+    ws = _workspace_for(args)
+    ws.ensure()
+    df = hangcheck.run_hang_check(ws, n=args.n)
+    detail, summary = hangcheck.write_hang_check(ws, df, n=args.n)
+    print(hangcheck.summarize(df).to_string(index=False))
+    print(f"wrote {detail}\nwrote {summary}")
     return 0
 
 
@@ -324,7 +340,21 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Phase 6: portable onboard-latency harness (per-flow + windowed).")
     _add_common_args(p)
     p.add_argument("--n", type=int, default=30)
+    p.add_argument("--fresh-baselines", action="store_true",
+                   help="Build the per-flow baselines on this machine (use on any machine "
+                        "other than the one that ran the exact campaign).")
+    p.add_argument("--exact-arm", action="store_true",
+                   help="Also time the 0.9082 configuration (full diagrams, delta<=0.01).")
+    p.add_argument("--watchdog", type=float, default=900.0,
+                   help="Kill the run if one step exceeds this many seconds (0 = off).")
     p.set_defaults(func=_cmd_latency)
+
+    p = sub.add_parser("hang-check",
+                       help="Count hera non-terminations, committed vs machine-built baselines.")
+    p.add_argument("--root", type=str, default=None,
+                   help="Workspace root (default: repo root via Workspace.default()).")
+    p.add_argument("--n", type=int, default=30)
+    p.set_defaults(func=_cmd_hang_check)
 
     p = sub.add_parser("artifacts",
                         help="Phase 8: manuscript figures/tables/snippets + "
