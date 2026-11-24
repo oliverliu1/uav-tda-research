@@ -57,8 +57,9 @@ published probe record the root `CLAUDE.md`'s number-provenance rule points
 at), `MULTI_SEED_VARIANCE.md`, and `C2_NORMALIZATION_DIAGNOSTIC.md`.
 
 Alongside those, six machine-generated reports under `paper/`, each built
-from committed `results/tables/rebuild/*.csv`. **All pending author sign-off**
-— no number in any of them is yet approved for the manuscript:
+from committed `results/tables/rebuild/*.csv`. **All six were signed off by the author
+on 2026-11-23** (as committed at `68dae1b`), so their numbers may be used in
+the manuscript with the caveats each report states:
 
 - `paper/EXACT_RESULTS.md` — full-test-split, high-precision (δ≤0.01)
   Wasserstein-2 campaign (Phase 6 Track A).

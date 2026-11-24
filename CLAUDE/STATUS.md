@@ -20,7 +20,7 @@ Human entry point: `README.md`.
   clean; CI green (runner pinned to `ubuntu-24.04`). Report:
   `paper/MANUSCRIPT_ARTIFACTS.md`; figures: `results/figures/manuscript/`.
 
-## Results package (all pending author sign-off)
+## Results package (signed off by the author 2026-11-23, as committed at `68dae1b`)
 
 | Doc | What it holds | Headline |
 |---|---|---|
@@ -78,7 +78,7 @@ attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attributio
   0.8930 is used only where paired with the latency harness cost (frontier).
 - Companion-board latency run: done 2026-11-23 on a Raspberry Pi 5 (n=30, both per-flow arms, all W;
   no throttling). Hang check: Mac-built baselines hang on the Pi, Pi-built do not.
-- Which per-flow interval to quote beside 0.9082: recommendation block-250; author to confirm.
+- Per-flow interval beside 0.9082: decided 2026-11-23, block-250 [0.885, 0.930] with the few-runs caveat.
 - Cross-benchmark evaluation: decided, future work (reword the §V promise).
 
 Decided 2026-11-11: April stash dropped; `archive/poster_eda/node_modules` untracked
@@ -86,8 +86,9 @@ Decided 2026-11-11: April stash dropped; `archive/poster_eda/node_modules` untra
 env pins; dataset stays in-repo under its ODbL license with attribution (`data/README.md`).
 Stale worktrees and merged branches were pruned 2026-11-10; only `main` remains.
 
-- Sign off (or amend) the six results docs (incl. `MANUSCRIPT_ARTIFACTS.md`).
-- `main.tex` rewrite (deferred until after sign-off).
+- Results sign-off: done 2026-11-23, all six docs approved with no amendments. The reports' own
+  "pending sign-off" sections are generator text and were not changed.
+- `main.tex` rewrite: unblocked, not started. This is the remaining work.
 
 ## Regenerating anything
 

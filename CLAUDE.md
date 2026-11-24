@@ -60,7 +60,8 @@ Golden-master `metrics.py` functions and the probe default path must not change 
 - **Number provenance:** every number cited anywhere must trace to a committed CSV or
   machine-generated doc. Current candidates: `paper/{EXACT,WINDOWED,LATENCY}_RESULTS.md`,
   `paper/MANUSCRIPT_STATS.md`, `paper/ZNORM_RESULTS.md`, `paper/MANUSCRIPT_ARTIFACTS.md` —
-  **all pending author sign-off**.
+  **all six signed off by the author 2026-11-23** (as committed at `68dae1b`; the reports' own
+  "pending sign-off" sections are generator text and predate the approval).
 - **Canonical score** = val-Normal z-normalized **SUM** across manifolds (`metrics.apply_znorm`,
   `probe.run_probe_with_znorm`). `uav_tda/unsupervised.py` keeps the monolith's max-pool as a
   frozen port only. Val-stats and test scores must come from the same baseline realization.
