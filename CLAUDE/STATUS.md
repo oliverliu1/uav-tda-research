@@ -16,7 +16,7 @@ Human entry point: `README.md`.
   remains.
 - **Phase 8 (manuscript artifacts):** merged to `main` (PR #19, after the audit/cleanup PR #18;
   2026-11-10) (`uav-tda artifacts`): full-path frontier, unique window counts, operating points,
-  six figures, three new snippets, backfilled sidecars. Fast suite 215 passed / 0 skipped; ruff
+  six figures, three new snippets, backfilled sidecars. Fast suite 217 passed / 0 skipped; ruff
   clean; CI green (runner pinned to `ubuntu-24.04`). Report:
   `paper/MANUSCRIPT_ARTIFACTS.md`; figures: `results/figures/manuscript/`.
 
@@ -91,7 +91,9 @@ Stale worktrees and merged branches were pruned 2026-11-10; only `main` remains.
 - Manuscript rewrite: in progress in `CLAUDE/SciTech2027_Manuscript/` (plan 9, five phases).
   **Deadline 2026-12-01, 8:00 PM Eastern.** Phase 0 done 2026-11-23: working copy builds (10 pages,
   text still the abstract's), cited numbers come from `uav-tda manuscript-numbers`, and
-  `make bundle` writes a self-contained Overleaf copy. Next: Phase 1, Methodology. Target dates are
+  `make bundle` writes a self-contained Overleaf copy. Phase 1 done 2026-11-23: Section III
+  (Methodology) rewritten; the other sections still carry the abstract's text, marked with red
+  draft notes. Next: Phase 2, Results. Target dates are
   in the plan (§3).
 
 ## Regenerating anything

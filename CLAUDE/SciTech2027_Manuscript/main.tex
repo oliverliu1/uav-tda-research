@@ -17,6 +17,9 @@
 % paths.tex says where those generated files are (the repo here; the bundle on Overleaf).
 \input{paths}
 \input{\rebuild/paper_snippets/manuscript_numbers.tex}
+
+% Marks text that has not been rewritten yet. No \draftnote may remain at submission.
+\newcommand{\draftnote}[1]{\par\noindent\textcolor{red}{\textbf{[Draft note: #1]}}\par}
 \setlength\LTleft{0pt} 
 
 \usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc}
@@ -37,6 +40,7 @@ Unmanned aerial vehicle (UAV) swarms are now central to intelligence, surveillan
 \end{abstract}
 
 \section{Introduction}
+\draftnote{The abstract and Sections I and II are still the extended abstract's text and numbers. They are revised in Phase 3.}
 
 % Motivating the work: what is happening in the world?
 \lettrine{U}{nmanned} aerial vehicle (UAV) swarms have become operationally central to modern intelligence, surveillance, and reconnaissance (ISR). The 2022-2025 conflict in Ukraine has demonstrated the scale of this shift. Nearly four thousand HX-2 Karma autonomous UAVs from Helsing were committed to Ukrainian forces in 2024 \cite{Bendett}. These swarm-capable drones are described as immune to electronic warfare, and are designed to operate without continuous communication to a master node or ground operator \cite{Helsing}. The 2025 India-Pakistan border conflict saw autonomous ISR swarms used as a force multiplier, providing continuity in tactical decision-making during the most serious exchange between the two nuclear powers in decades \cite{Sareen}. The United States Department of War has correspondingly accelerated its investment in drone swarm capabilities, with the 2026 ``Crucible'' demonstration event requiring autonomous completion of end-to-end ISR mission sets by swarms of at least four UAVs in simultaneous operation \cite{Harper}.
@@ -80,29 +84,36 @@ Persistent homology is a topological data analysis technique that summarizes the
 The decomposition of network flows into functional subsystems is an established practice in network traffic analysis, where features describing addressing, volume, and link performance encode different aspects of network behavior. Zeng et al. \cite{Zeng} explicitly organize the UAVIDS-2025 feature set into three such functional categories (Connection, Traffic Volume, Performance) and predict per-attack signature features within each category. We are not aware of prior work that applies persistent homology to UAV swarm intrusion detection, nor that evaluates topological analysis on a functional decomposition of UAV flow data. Our contribution lies in combining the multi-manifold decomposition with per-manifold persistent homology to produce per-attack manifold attribution, an output that supervised classification on the same features does not produce.
 
 \section{Methodology}
+\label{sec:method}
 
-We apply persistent homology to UAV network flows by decomposing each flow's feature vector into three functional subsystems, computing per-flow Vietoris-Rips persistence diagrams relative to a reference cloud of normal traffic, and measuring the Wasserstein-2 distance to a baseline barcode as the anomaly score. The pipeline is illustrated in Fig.~\ref{fig:pipeline}.
+We apply persistent homology to UAV network flows by decomposing each flow's feature vector into three functional subspaces, computing a Vietoris-Rips persistence diagram for each flow relative to a reference cloud of normal traffic, and scoring the flow by the Wasserstein-2 distance from that diagram to a baseline barcode. Per-subspace scores are normalized on validation Normal Traffic and summed. The pipeline is illustrated in Fig.~\ref{fig:pipeline}. Sections~\ref{sec:dataset}--\ref{sec:scoring} describe this per-flow detector. Section~\ref{sec:windowed} describes a time-windowed variant that scores a window of consecutive flows with one diagram per subspace. Sections~\ref{sec:protocol} and \ref{sec:latency} describe how both are evaluated and timed.
 
 \begin{figure}[h]
 \centering
 \resizebox{\columnwidth}{!}{\input{pipeline_figure}}
-\caption{Multi-manifold persistent homology pipeline. Each UAV network flow is partitioned into three functional subspaces. A Vietoris-Rips persistence diagram is computed for each manifold using a 500-point reference cloud of Normal Traffic. The Wasserstein-2 distance from each diagram to a manifold-specific baseline barcode yields a per-manifold anomaly score, which is then summed for the combined detector.}
+\caption{Multi-manifold persistent homology pipeline. Each UAV network flow is partitioned into three functional subspaces. A Vietoris-Rips persistence diagram is computed for each manifold using a 500-point reference cloud of Normal Traffic. The Wasserstein-2 distance from each diagram to a manifold-specific baseline barcode yields a per-manifold anomaly score. The scores are normalized on validation Normal Traffic and summed for the combined detector.}
 \label{fig:pipeline}
 \end{figure}
 
 \subsection{Dataset}
+\label{sec:dataset}
 
-We evaluate on UAVIDS-2025 \cite{Zeng}, a publicly available benchmark of 122,171 UDP flow records collected from simulated UAV swarm network traffic. Each flow record contains 23 attributes spanning addressing, traffic volume, and link performance metrics. The dataset contains five classes: Normal Traffic (26,172 flows) and four attack classes, namely Blackhole (26,110), Wormhole (26,086), Sybil (24,077), and Flooding (19,726). We use a stratified 70/15/15 train/validation/test split, yielding 85,519 training flows, 18,326 validation flows, and 18,326 test flows.
+We evaluate on UAVIDS-2025 \cite{Zeng}, a publicly available benchmark of 122,171 UDP flow records collected from simulated UAV swarm network traffic. Each record has 22 attributes spanning addressing, traffic volume, and link performance, plus a class label. The dataset contains five classes: Normal Traffic (26,172 flows) and four attack classes, namely Blackhole (26,110), Wormhole (26,086), Sybil (24,077), and Flooding (19,726). We use a stratified 70/15/15 train/validation/test split with a fixed random seed, yielding 85,519 training flows, 18,326 validation flows, and \NTestFlows{} test flows. The test split contains \NTestNormal{} Normal Traffic flows and \NTestAttack{} attack flows. The validation split contains \NValNormal{} Normal Traffic flows, which are the only validation flows the detector uses.
+
+The dataset has no timestamps. FlowID is a sequential record index, and we treat FlowID order as a proxy for temporal order wherever order matters (Section~\ref{sec:windowed}). In that order, Normal Traffic records do not form a contiguous block: they are interleaved with Blackhole records in short runs. Sybil, Flooding, and Wormhole records form long contiguous blocks.
 
 \subsection{Three-Manifold Functional Decomposition}
+\label{sec:decomposition}
 
-We partition the 21 retained flow features (dropping FlowID, an index without semantic content, and Protocol, which is constant across all flows) into three pairwise-disjoint subspaces. This partition follows the functional categorization established by Zeng et al. \cite{Zeng} in the UAVIDS-2025 source paper, where the dataset's 23 features are organized into three categories (Connection, Traffic Volume, and Performance) based on the functional role each feature plays in characterizing network behavior. We retain this categorization directly to preserve consistency with the dataset's design intent. The three manifolds, named C2, Network, and Physical for brevity, are as follows:
+We drop FlowID, an index without semantic content, and Protocol, which is constant across all flows. The remaining 20 attributes are partitioned into three pairwise-disjoint subspaces. This partition follows the functional categorization established by Zeng et al. \cite{Zeng} in the UAVIDS-2025 source paper, where the dataset's attributes are organized into three categories (Connection, Traffic Volume, and Performance) based on the functional role each plays in characterizing network behavior. We retain this categorization directly to preserve consistency with the dataset's design intent. We call the three subspaces manifolds\footnote{We use ``manifold'' informally for a feature subspace and the point clouds within it. We do not assume or estimate a manifold structure.} and name them C2, Network, and Physical for brevity:
 
 \begin{itemize}
-    \item \textbf{C2 (Connection):} 5 features after dropping FlowID and Protocol. 7 features after preprocessing, comprising last-octet integer encoding of SrcAddr and DstAddr, one-hot indicators for the two observed ports (9 and 654) on each of SrcPort and DstPort, and FlowDuration.
+    \item \textbf{C2 (Connection):} 5 attributes (SrcAddr, SrcPort, DstAddr, DstPort, and FlowDuration), encoded as 7 features: the last octet of SrcAddr and of DstAddr as an integer, one-hot indicators for the two observed ports (9 and 654) on each of SrcPort and DstPort, and FlowDuration.
     \item \textbf{Network (Traffic Volume):} 10 features, comprising TxPackets, RxPackets, LostPackets, TxBytes, RxBytes, TxPacketRate, RxPacketRate, TxByteRate, RxByteRate, and MeanPacketSize.
     \item \textbf{Physical (Performance):} 5 features, comprising MeanDelay, MeanJitter, Throughput, PacketDropRate, and AverageHopCount.
 \end{itemize}
+
+The encoded representation therefore has 22 features: 7 in C2, 10 in Network, and 5 in Physical.
 
 All features are standardized to a zero mean and unit variance using statistics computed on the training split only. Let $x_{i,j}$ denote the raw value of feature $j$ in flow $i$, and let $\mathcal{T}$ denote the set of training-split flow indices. For each feature $j$, we compute the training-split mean and standard deviation,
 
@@ -118,15 +129,19 @@ z_{i,j} = \frac{x_{i,j} - \mu_j}{\sigma_j}
 \label{eq:zscore}
 \end{equation}
 
-to every flow $i$ across the training, validation, and test splits, using the same $\mu_j$ and $\sigma_j$ from Eq.~\eqref{eq:scaling_stats}. The values $\mu_j$ and $\sigma_j$ are never recomputed on validation or test data, which would leak information about those splits into the preprocessing. Standardization is necessary because the raw features span several orders of magnitude (packet counts in the thousands, packet drop rates in the hundredths) and Euclidean distances would otherwise be dominated by the highest-magnitude features. The 25th-percentile pairwise-distance filtration cap reported in the next subsection is therefore in standardized units.
+to every flow $i$ across the training, validation, and test splits, using the same $\mu_j$ and $\sigma_j$ from Eq.~\eqref{eq:scaling_stats}. The values $\mu_j$ and $\sigma_j$ are never recomputed on validation or test data, which would leak information about those splits into the preprocessing. Standardization is necessary because the raw features span several orders of magnitude (packet counts in the thousands, packet drop rates in the hundredths) and Euclidean distances would otherwise be dominated by the highest-magnitude features. The filtration cap in Section~\ref{sec:filtration} is therefore in standardized units.
 
 Our methodological contribution is not the decomposition itself but the application of persistent homology independently within each subspace. Single-manifold analyses compute topology over all features jointly and produce a single anomaly signal per flow. Our hypothesis is that different attack classes distort the topology of different functional subspaces, and that per-manifold attribution provides interpretive information that single-manifold analysis cannot.
 
 \subsection{Reference Cloud Construction}
+\label{sec:reference}
 
-For each manifold, we construct a 500-point reference cloud representing normal UAV traffic. We apply k-medoids clustering \cite{Kaufman} to the Normal Traffic flows in the training split and select the 500 medoid flows as the reference cloud. K-medoids is preferred over k-means because medoids are actual observed flows rather than synthetic averages, and because using the same 500 row positions across all three manifolds preserves the correspondence between reference points across subspaces. In a deployment scenario, this reference cloud corresponds to a controlled training-flight phase during which only benign operational regimes are exercised. The design of such a training-flight protocol, including controlled environment selection, planned flight scenarios, and any simulated adversarial activity, is outside the scope of this work and is left to future investigation.
+We construct a 500-point reference cloud representing normal UAV traffic. We apply k-medoids clustering \cite{Kaufman} to the Normal Traffic flows in the training split and select the 500 medoid flows. K-medoids is preferred over k-means because medoids are actual observed flows rather than synthetic averages. The clustering is run in the C2 subspace only, and the same 500 flows form the reference cloud in all three manifolds. This keeps a one-to-one correspondence between reference points across subspaces, but it does not guarantee that the reference cloud is equally representative of normal behavior in the Network and Physical subspaces. One reference cloud is used for every experiment in this paper.
+
+By label-free we mean that no flow carrying an attack label is used at any stage. Normal Traffic labels are used twice: to select the reference cloud from the training split, and to select the validation flows on which scores are normalized and the decision threshold is set (Section~\ref{sec:scoring}). In a deployment scenario, these correspond to a controlled training-flight phase during which only benign operational regimes are exercised. The design of such a training-flight protocol, including controlled environment selection, planned flight scenarios, and any simulated adversarial activity, is outside the scope of this work and is left to future investigation.
 
 \subsection{Per-Flow Vietoris-Rips Filtration}
+\label{sec:filtration}
 
 For each query flow $q$ and each manifold $m$, we construct a Vietoris-Rips simplicial complex on the union $P_m = \{q\} \cup R_m$, where $R_m$ is the $500$-point reference cloud for manifold $m$. The query flow is dropped into the reference cloud, and the topology of the combined $501$-point set is compared against the topology of the reference cloud alone. If the query is normal, the topology is essentially unchanged; if the query is anomalous, the query point lands in an unusual location and distorts the topology.
 
@@ -139,15 +154,18 @@ In principle the filtration sweeps from $0$ to $\infty$, but computation at larg
 \label{eq:filtration_cap}
 \end{equation}
 
-where $Q_{0.25}$ is the $25$th percentile of the distance distribution. This data-adaptive cap normalizes for the differing intrinsic scales of the three subspaces and yields $\epsilon_{\max} = 0.494$ for C2, $0.145$ for Network, and $0.333$ for Physical (in standardized units, following Eq.~\eqref{eq:zscore}). The 25th-percentile choice is consistent with the data-adaptive scale-selection approach in prior topological anomaly detection work \cite{Bruillard} and balances coverage of medium-scale topological features against computational cost.
+where $Q_{0.25}$ is the $25$th percentile of the distance distribution. This data-adaptive cap normalizes for the differing intrinsic scales of the three subspaces and yields $\epsilon_{\max} = \EpsMaxConn{}$ for C2, $\EpsMaxNet{}$ for Network, and $\EpsMaxPhys{}$ for Physical (in standardized units, following Eq.~\eqref{eq:zscore}). The 25th percentile was chosen for tractability: with a cap at the 95th percentile, the complexes were too large to hold in memory. A data-adaptive scale is consistent with prior topological anomaly detection work \cite{Bruillard}.
 
 The Vietoris-Rips complex on $n$ points can contain up to $\binom{n}{k+1}$ simplices of dimension $k$, which is intractable to enumerate for $n = 501$ and large $k$. We mitigate this in two ways. First, we cap the simplex tree \cite{BoissonnatMaria} at a maximum dimension $k_{\max}$, retaining only simplices of dimension at most $k_{\max}$ and consequently computing homology only in dimensions $H_0, H_1, \ldots, H_{k_{\max}-1}$. Second, for the higher-dimensional manifolds where the Rips complex grows rapidly, we use a sparse approximation.
 
-For the Physical manifold (ambient dimension $5$), the exact Vietoris-Rips complex remains computationally tractable within our per-flow runtime budget. We use exact Rips with $k_{\max} = 2$, yielding barcodes in dimensions $H_0$ (connected components) and $H_1$ (loops). For the C2 (ambient dimension $7$) and Network (ambient dimension $10$) manifolds, exact construction is too expensive at scale. We use sparse Vietoris-Rips \cite{Cavanna} with sparsification parameter $\varepsilon_s = 0.5$ and $k_{\max} = 3$, yielding barcodes in $H_0$, $H_1$, and $H_2$ (voids). The sparsification parameter $\varepsilon_s$ governs the approximation quality: sparse Rips guarantees that the bottleneck distance between the sparse and exact barcodes is bounded as a function of $\varepsilon_s$, with smaller values yielding tighter approximations at higher computational cost. The value $\varepsilon_s = 0.5$ is a moderate setting consistent with similar applications in topological anomaly detection. All barcodes are computed using the GUDHI library \cite{Maria}.
+For the Physical manifold (ambient dimension $5$), the exact Vietoris-Rips complex remains computationally tractable. We use exact Rips with $k_{\max} = 2$, yielding barcodes in dimensions $H_0$ (connected components) and $H_1$ (loops). For the C2 (ambient dimension $7$) and Network (ambient dimension $10$) manifolds, exact construction is too expensive at scale. We use sparse Vietoris-Rips \cite{Cavanna} with sparsification parameter $\varepsilon_s = 0.5$ and $k_{\max} = 3$, yielding barcodes in $H_0$, $H_1$, and $H_2$ (voids). The sparsification parameter $\varepsilon_s$ governs the approximation quality: sparse Rips guarantees that the bottleneck distance between the sparse and exact barcodes is bounded as a function of $\varepsilon_s$, with smaller values yielding tighter approximations at higher computational cost. The value $\varepsilon_s = 0.5$ was chosen for tractability. All barcodes are computed using the GUDHI library \cite{Maria}, version 3.11.
+
+The sparse construction is not deterministic in this library version: two calls on the same points can return slightly different barcodes. C2 and Network barcodes are therefore reproducible statistically but not bit for bit, while Physical barcodes are exactly reproducible. Section~\ref{sec:protocol} states how each evaluation controls for this.
 
 \subsection{Anomaly Scoring}
+\label{sec:scoring}
 
-The baseline barcode for each manifold is computed once from the reference cloud alone. For manifold $m$, let $B_m^{\text{ref}}$ denote the barcode obtained by applying the Vietoris-Rips construction of Section III.D to $R_m$ (without any query flow). For a given query flow $q$, let $B_{m,q}$ denote the barcode obtained from $P_m = \{q\} \cup R_m$. The anomaly score for flow $q$ on manifold $m$ is the Wasserstein-2 distance between these two barcodes, summed across homology dimensions:
+The baseline barcode for each manifold is computed from the reference cloud alone. For manifold $m$, let $B_m^{\text{ref}}$ denote the barcode obtained by applying the Vietoris-Rips construction of Section~\ref{sec:filtration} to $R_m$ (without any query flow). For a given query flow $q$, let $B_{m,q}$ denote the barcode obtained from $P_m = \{q\} \cup R_m$. The per-manifold score for flow $q$ is the Wasserstein-2 distance between these two barcodes, summed across homology dimensions:
 
 \begin{equation}
 s_m(q) = \sum_{k=0}^{k_{\max,m}-1} W_2\!\left( B_{m,q}^{(k)},\, B_m^{\text{ref},(k)} \right),
@@ -156,33 +174,73 @@ s_m(q) = \sum_{k=0}^{k_{\max,m}-1} W_2\!\left( B_{m,q}^{(k)},\, B_m^{\text{ref},
 
 where $B^{(k)}$ denotes the restriction of barcode $B$ to homology dimension $k$, and $k_{\max,m} = 3$ for C2 and Network and $k_{\max,m} = 2$ for Physical.
 
-The Wasserstein-2 distance between two barcodes views each barcode as a set of points $(b, d)$ in $\mathbb{R}^2$ and computes the minimum-cost matching of points in one barcode to points in the other, with unmatched points on either side matched to the diagonal $\{(x, x) : x \in \mathbb{R}\}$. The cost of matching two points is the squared $L^\infty$ distance between them; the Wasserstein-2 distance is the square root of the minimum total cost over all valid matchings. We use the Wasserstein-2 form rather than Wasserstein-1 because squared cost disproportionately penalizes large displacements, which is appropriate when anomalies produce a small number of substantially displaced topological features rather than many small distributed perturbations. Wasserstein distances are computed using the Hera backend \cite{Kerber} via GUDHI \cite{Maria}.
-
-To combine evidence across manifolds, the per-manifold anomaly scores are summed without weighting:
+The Wasserstein-2 distance between two barcodes views each barcode as a multiset of points $(b, d)$ in $\mathbb{R}^2$ and computes the minimum-cost matching of points in one barcode to points in the other, with unmatched points on either side matched to the diagonal $\Delta = \{(x, x) : x \in \mathbb{R}\}$. With $\gamma$ ranging over such matchings,
 
 \begin{equation}
-s(q) = \sum_{m \in \{ \text{C2, Network, Physical} \}} s_m(q).
+W_2(B, B') = \left( \inf_{\gamma} \sum_{x \in B \cup \Delta} \| x - \gamma(x) \|_2^2 \right)^{1/2},
+\label{eq:wasserstein}
+\end{equation}
+
+so the cost of matching two points is their squared Euclidean distance. We use the Wasserstein-2 form rather than Wasserstein-1 because squared cost disproportionately penalizes large displacements, which is appropriate when anomalies produce a small number of substantially displaced topological features rather than many small distributed perturbations. A bar that is still alive at the filtration cap has no finite death value; we assign it the death value $\epsilon_{\max,m}$ before matching. Wasserstein distances are computed using the Hera backend \cite{Kerber} via GUDHI \cite{Maria}. Hera returns the distance to within a relative error $\delta$ that the caller chooses; the values we use are given in Section~\ref{sec:protocol}.
+
+The three manifolds produce distances on different scales: raw C2 distances are several times larger than Network or Physical distances, so an unweighted sum would be dominated by C2. We therefore normalize each per-manifold score using Normal Traffic from the validation split. Let $\mathcal{V}_{\text{normal}}$ denote the set of Normal Traffic flows in the validation split, and let $\bar{s}_m$ and $\varsigma_m$ be the mean and standard deviation of $s_m(q)$ over $q \in \mathcal{V}_{\text{normal}}$. The normalized score is
+
+\begin{equation}
+\hat{s}_m(q) = \frac{s_m(q) - \bar{s}_m}{\varsigma_m},
+\label{eq:znorm}
+\end{equation}
+
+and the combined anomaly score over a set of manifolds $\mathcal{M}$ is the sum
+
+\begin{equation}
+s(q) = \sum_{m \in \mathcal{M}} \hat{s}_m(q).
 \label{eq:combined_score}
 \end{equation}
 
-We acknowledge that the three manifolds produce distances on different scales, with raw C2 distances roughly five times larger in magnitude than Network or Physical distances. The full manuscript will report results under per-manifold Z-score normalization computed on held-out validation Normal Traffic. In this extended abstract we report the unweighted-sum results to maintain a strict separation between calibration data and evaluation data.
+Unless stated otherwise, $\mathcal{M}$ contains all three manifolds. We also report every smaller subset, since a deployment may lack visibility into one subsystem. The validation statistics and the test scores they normalize are always computed against the same baseline barcodes.
 
-Threshold calibration for binary detection uses only Normal Traffic flows from the validation split. Let $\mathcal{V}_{\text{normal}}$ denote the set of Normal Traffic flow indices in the validation split. The decision threshold $\tau$ is set at the 95th percentile of the validation Normal Traffic anomaly score distribution:
+Threshold calibration for binary detection also uses only $\mathcal{V}_{\text{normal}}$. The decision threshold $\tau$ is set at the 95th percentile of the validation Normal Traffic anomaly score distribution:
 
 \begin{equation}
 \tau = Q_{0.95}\!\left( \{ s(q) : q \in \mathcal{V}_{\text{normal}} \} \right).
 \label{eq:threshold}
 \end{equation}
 
-A flow $q$ is flagged as anomalous if $s(q) > \tau$. The detector therefore never observes attack labels at any stage, satisfying our label-free constraint.
+A flow $q$ is flagged as anomalous if $s(q) > \tau$. Neither the normalization nor the threshold uses an attack label, which satisfies the label-free constraint of Section~\ref{sec:reference}.
 
-\subsection{Computational Approximation}
+\subsection{Time-Windowed Variant}
+\label{sec:windowed}
 
-The exact computation of Wasserstein-2 distances between persistence diagrams scales poorly with diagram size. For tractability, we report results from a confirmation probe configuration: 200 randomly sampled flows per class from the test split, with Wasserstein distances computed using Hera's approximate mode at relative error $\delta = 0.2$ and per-diagram truncation to the top $K = 50$ most persistent features. This configuration completes per seed in approximately 60 seconds on a 2021-era laptop (Apple M1 Pro, 8 cores). We verified that doubling the diagram resolution from a prior $K = 20$, $\delta = 0.5$ configuration produced consistent attack-attribution rankings, confirming that results are not artifacts of aggressive approximation. The full manuscript will report exact Wasserstein computation on the complete test set.
+The per-flow detector builds three Vietoris-Rips complexes on 501 points for every flow. The time-windowed variant instead scores a window of $W$ consecutive flows at once, following the windowed construction of Bruillard et al. \cite{Bruillard}. The test split is taken in FlowID order and cut into non-overlapping windows of $W$ flows, discarding a final partial window. We evaluate $W \in \{25, 50, 100, 200\}$, which gives \NWinTwentyFive{}, \NWinFifty{}, \NWinHundred{}, and \NWinTwoHundred{} test windows. Because the test split is a 15\% sample of the dataset, consecutive test flows are close in FlowID order but are not adjacent records.
 
-We evaluate across three random seeds (42, 7, 123) and report mean and standard deviation of all AUC metrics. The seed determines random sampling of the 200 per-class probe flows, k-medoids initialization, and tiebreaking inside the Wasserstein matching.
+For each window and each manifold, the $W$ standardized feature vectors of the window are themselves the point cloud. No reference cloud is added. We compute one Vietoris-Rips barcode per window and manifold with the same filtration caps $\epsilon_{\max,m}$ and the same homology dimensions as the per-flow detector. Point clouds of at most 200 points make the exact construction affordable for C2 and Physical, so only Network uses the sparse approximation.
+
+The baseline is built from Normal Traffic in the validation split. Those flows are cut into windows of $W$ in the same way, a barcode is computed for each window, and the baseline barcode for manifold $m$ is the medoid of these barcodes: the one with the smallest total Wasserstein-2 distance to the others. A window's per-manifold score is the Wasserstein-2 distance from its barcode to this baseline, summed over homology dimensions as in Eq.~\eqref{eq:anomaly_score}, using complete barcodes and Hera relative error $\delta = 0.01$. Scores are normalized by the mean and standard deviation of the validation windows' scores and summed across manifolds, as in Eqs.~\eqref{eq:znorm} and \eqref{eq:combined_score}. The windowed variant is label-free in the same sense as the per-flow detector.
+
+For evaluation, a window is labeled with the majority class of its flows, with ties resolved in favor of an attack class. Window-level results are therefore not directly comparable to flow-level results: the unit of decision, the label, and the class balance all differ.
+
+Two controls accompany each window size. First, the ordered evaluation is repeated ten times. The repeats contain identical windows, and they differ only through the sparse construction on the Network manifold. Second, a shuffle control repeats the evaluation ten times on windows drawn from a random permutation of the test flows, which destroys FlowID order while keeping the same flows. The difference between the ordered and shuffled results measures how much the windowed detector relies on consecutive flows resembling one another.
+
+\subsection{Evaluation Protocol}
+\label{sec:protocol}
+
+Detection is measured by the area under the receiver operating characteristic curve (AUC) for Normal Traffic versus any attack, using the combined score of Eq.~\eqref{eq:combined_score}. We evaluate the per-flow detector in two configurations.
+
+\textit{Full test split.} All \NTestFlows{} test flows and all \NValNormal{} validation Normal Traffic flows are scored using complete barcodes and Hera relative error $\delta = 0.01$. The baseline barcodes are computed once and reused for every flow, so the validation statistics and the test scores share one realization of the sparse construction. No Wasserstein computation failed or required a looser tolerance. We describe this configuration as high-precision rather than exact. With $\delta = 0$, every one of 13 sampled flows exceeded a 120-second limit on at least one homology dimension, which projects to about 30 days of computation on our workstation for the full split. Results from this configuration are our primary per-flow results.
+
+\textit{Ten-seed probe.} To measure sensitivity to which flows are evaluated, and to pair detection results with the cost of a cheaper configuration, we also use a sampled probe. For each of ten seeds we draw 200 test flows per class, keep the 50 most persistent bars per homology dimension in both the flow and the baseline barcodes, and compute Wasserstein distances at $\delta = 0.2$. All validation Normal Traffic flows are scored in the same run to obtain the normalization statistics. The seed controls only which test flows are drawn. The reference cloud is fixed, and Hera has no random component. The remaining run-to-run variation comes from the sparse construction of the C2 and Network baseline barcodes. Results are reported as the mean and standard deviation across seeds. The probe and the full test split estimate different quantities, and we do not treat one as a prediction of the other.
+
+\textit{Confidence intervals.} We report 95\% percentile bootstrap intervals \cite{EfronTibshirani} from 2,000 resamples, stratified by class. For the probe, flows are resampled within each seed. For the windowed variant, windows are resampled once per replicate and the same draw is applied to all ten repeats, because the repeats contain the same windows. These intervals treat flows, or windows, as independent. They are not independent: consecutive flows of the same class have correlated scores, as do adjacent windows. We therefore also report a circular block bootstrap \cite{PolitisRomano} with 1,000 resamples, which resamples blocks of consecutive same-class units in FlowID order. For per-flow results the block length is 250 flows, the lag by which the within-class rank autocorrelation of the score has decayed to near zero. For windowed results the block length is 10 windows, the longest we evaluated. Block intervals capture dependence within the contiguous runs present in the test split. Several classes have only a few such runs, so we treat the block intervals as indicative.
+
+\subsection{Latency Measurement}
+\label{sec:latency}
+
+We time the full inference path for one decision, in a single process, on two machines. For a per-flow decision the timed path is the standardization of the flow's features, the construction of the three Vietoris-Rips complexes and their barcodes, and the Wasserstein distances to the baseline barcodes. It is timed in both configurations of Section~\ref{sec:protocol}: the probe configuration (50 bars, $\delta = 0.2$) and the full-test configuration (complete barcodes, $\delta = 0.01$). For a windowed decision the timed path is the construction of the window's three barcodes and their Wasserstein distances to the baseline. Window flows are read already standardized, and the one-time construction of the windowed baseline is reported separately. Each measurement uses 30 randomly chosen test flows, or 30 randomly chosen test windows per window size, and the same flows and windows are used on both machines.
+
+The first machine is a 2021 laptop with an Apple M1 Pro processor, on which our Python build is an x86-64 binary running under Rosetta~2 translation. The second is a Raspberry Pi 5 with 4 GB of memory, an active cooler, and a mains power supply, running the same code natively. On each machine the baseline barcodes are those computed on that machine.
 
 \section{Results}
+\draftnote{Sections IV to VI are still the extended abstract's text and numbers, and their section references predate the new Section III. They are rewritten in Phases 2 and 3.}
 
 We report results from the confirmation probe configuration described in Section III.F: 200 flows per class drawn from the test split, with Wasserstein-2 distances computed under sparse approximation, averaged across three random seeds (42, 7, 123). Section IV.A establishes the supervised baseline context. Section IV.B reports per-attack manifold attribution. Section IV.C reports label-free binary anomaly detection performance.
 

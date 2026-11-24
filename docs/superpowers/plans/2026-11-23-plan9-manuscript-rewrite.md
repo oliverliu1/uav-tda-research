@@ -1,6 +1,6 @@
 # Plan 9: full-manuscript rewrite of `main.tex`
 
-**Status:** approved by the author 2026-11-23. Phase 0 done (working copy, numbers file, build).
+**Status:** approved by the author 2026-11-23. Phase 0 done (working copy, numbers file, build, bundle). Phase 1 done (Section III, Methodology).
 
 **Goal.** Turn the submitted extended abstract
 (`CLAUDE/SciTech2027_IntelligentSystems_Liu/main.tex`, 319 lines, about 10 pages) into the full
@@ -143,7 +143,7 @@ co-authors may be slow to respond from 11-26 to 11-29.
 | Phase | Content | Target | Author checkpoint |
 |---|---|---|---|
 | 0 | Manuscript location, numbers file, build, Overleaf bundle | 11-23 (done) | Approve the mechanism |
-| 1 | §III Methodology and pipeline figure | 11-24 | Review the methods text |
+| 1 | §III Methodology and pipeline figure | 11-24 (done 11-23) | Review the methods text |
 | 2 | §IV Results with figures and tables | 11-25 | Review results and the Sybil wording |
 | 3 | §V–§VII, abstract, introduction | 11-27 | Full draft to co-authors |
 | 4 | Bibliography, appendix, final number audit against the CSVs | 11-28 | Final read |
@@ -155,6 +155,20 @@ copy of the current draft.
 
 Questions to put to co-authors early, because they do not depend on the draft: the Sybil
 hypothesis wording (§V), and the three background claims the audit flagged (§I).
+
+## 3a. Carried forward from Phase 1
+
+- Sections not yet rewritten carry a red `\draftnote`. Phase 4 must end with none left.
+- Two bibliography entries were added for the bootstrap methods (`EfronTibshirani`,
+  `PolitisRomano`). They were written from memory and need checking against the sources in Phase 4.
+- Two sentences inherited from the abstract were changed because nothing in the repo supports
+  them: "epsilon_s = 0.5 is consistent with similar applications" now reads "chosen for
+  tractability", and the 25th-percentile cap is justified by memory limits (from the May
+  methods notes), keeping the Bruillard citation only for "data-adaptive scale".
+- Section III defines detection AUC; the one-versus-rest attribution AUC is still defined in
+  Section IV and should be kept there in Phase 2.
+- Results (Phase 2) must state the probe's Physical-manifold truncation artifact (top-50 bars
+  leave many flows with a Physical score of exactly zero) where the probe numbers appear.
 
 ## 4. Decisions (made 2026-11-23)
 

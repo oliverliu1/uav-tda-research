@@ -20,7 +20,7 @@
 ]
 
 \node[box, fill=nodeGray!70, text=black!80] (uav)
-    {\textbf{UAV flow}\\[2pt] 21 features};
+    {\textbf{UAV flow}\\[2pt] 22 features};
 
 \node[box, fill=nodeOrange, right=1.6cm of uav] (partition)
     {\textbf{Partition}\\[2pt] Per Zeng et al.};
@@ -35,7 +35,7 @@
     {\textbf{Physical manifold}\\[2pt] 5 features, exact VR};
 
 \node[box, fill=nodeGray!70, text=black!80, right=2.4cm of net] (anomaly)
-    {\textbf{Anomaly score}\\[2pt] Sum + threshold};
+    {\textbf{Anomaly score}\\[2pt] Normalize + sum};
 
 \draw[arr] (uav.east) -- (partition.west);
 \draw[arr] (partition.east) -- ++(0.6,0) |- (c2.west);
