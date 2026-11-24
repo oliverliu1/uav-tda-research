@@ -704,14 +704,6 @@ def dominant_at_chance(attribution):
 DEPENDENCE_BLOCK_LENGTHS = (1, 5, 10)
 
 
-def _rank_auc(y, scores) -> float:
-    from scipy.stats import rankdata
-
-    n1 = int(y.sum())
-    n0 = len(y) - n1
-    return float((rankdata(scores)[y].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
-
-
 def build_window_dependence_table(ws: Workspace, B: int = 1000, bootstrap_seed: int = 0):
     """How far ordered windows are from independent, and what that does to the CI.
 
@@ -725,7 +717,8 @@ def build_window_dependence_table(ws: Workspace, B: int = 1000, bootstrap_seed: 
     """
     import numpy as np
     import pandas as pd
-    from scipy.stats import rankdata
+
+    from .manuscript import block_bootstrap_mean_auc_ci, class_rank_z, min_label_runs
 
     groups: dict = {}
     for r in load_all_runs(ws):
@@ -737,32 +730,16 @@ def build_window_dependence_table(ws: Workspace, B: int = 1000, bootstrap_seed: 
         labels = dfs[0]["majority_label"].to_numpy()
         y = labels != _NORMAL_LABEL
         all_scores = [d["Z2_all_three"].to_numpy() for d in dfs]
-        classes = np.unique(labels)
-        z = np.zeros(len(labels))
-        for c in classes:
-            m = labels == c
-            ranks = rankdata(all_scores[0][m])
-            z[m] = (ranks - ranks.mean()) / (ranks.std() or 1.0)
+        z = class_rank_z(labels, all_scores[0])
         same = labels[1:] == labels[:-1]
         lag1 = (float(np.corrcoef(z[:-1][same], z[1:][same])[0, 1])
                 if same.sum() > 2 else float("nan"))
-        n_runs_min = min(
-            int((np.diff(np.r_[0, (labels == c).astype(int)]) == 1).sum()) for c in classes)
-        positions = [np.flatnonzero(labels == c) for c in classes]
+        n_runs_min = min_label_runs(labels)
         for block in DEPENDENCE_BLOCK_LENGTHS:
-            rng = np.random.default_rng(bootstrap_seed)
-            reps = np.empty(B)
-            for b in range(B):
-                parts = []
-                for pos in positions:
-                    starts = rng.integers(0, len(pos), -(-len(pos) // block))
-                    offs = (starts[:, None] + np.arange(block)).ravel()[:len(pos)]
-                    parts.append(pos[offs % len(pos)])
-                idx = np.concatenate(parts)
-                reps[b] = np.mean([_rank_auc(y[idx], s[idx]) for s in all_scores])
-            lo, hi = np.percentile(reps, [2.5, 97.5])
+            lo, hi = block_bootstrap_mean_auc_ci(y, all_scores, labels, block, B=B,
+                                                 bootstrap_seed=bootstrap_seed)
             rows.append({"w": w, "block_len": block, "lag1_autocorr": lag1,
-                         "n_runs_min": n_runs_min, "ci_lo": float(lo), "ci_hi": float(hi)})
+                         "n_runs_min": n_runs_min, "ci_lo": lo, "ci_hi": hi})
     return pd.DataFrame(rows)
 
 

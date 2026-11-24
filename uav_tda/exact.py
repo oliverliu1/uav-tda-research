@@ -684,6 +684,49 @@ def _exact_vs_probe_table(binary_raw_and_znorm: pd.DataFrame, ws: Workspace) -> 
     return pd.DataFrame(rows)
 
 
+FLOW_DEPENDENCE_BLOCK_LENGTHS = (1, 10, 50, 100, 250, 500)
+
+
+def build_flow_dependence_table(scored_df: pd.DataFrame, B: int = 1000,
+                                bootstrap_seed: int = 0) -> pd.DataFrame:
+    """How far test flows are from independent, and what that does to the headline CI.
+
+    ``scored_df`` is the z-normalized test frame in FlowID order (row_idx
+    ascending). One row per block length: `lag1_autocorr` is the pooled
+    within-class rank correlation between consecutive flows of the same
+    class; `autocorr_at_block` is the same at lag = block_len (NaN for a
+    class shorter than the lag); `ci_lo`/`ci_hi` are the within-class
+    circular block-bootstrap CI (block_len=1 is the independent-flow
+    interval). `n_runs_min` is the smallest number of contiguous label
+    runs any class has, so even long blocks only describe dependence inside
+    these runs, not variation across new ones.
+    """
+    labels = scored_df["label"].to_numpy()
+    y = labels != NORMAL
+    scores = scored_df["W2_all_three"].to_numpy()
+    z = manuscript.class_rank_z(labels, scores)
+    by_class = [z[labels == c] for c in np.unique(labels)]
+
+    def autocorr(lag: int) -> float:
+        pairs = [(zc[:-lag], zc[lag:]) for zc in by_class if len(zc) > lag + 2]
+        if not pairs:
+            return float("nan")
+        return float(np.corrcoef(np.concatenate([a for a, _ in pairs]),
+                                 np.concatenate([b for _, b in pairs]))[0, 1])
+
+    lag1 = autocorr(1)
+    rows = []
+    for block in FLOW_DEPENDENCE_BLOCK_LENGTHS:
+        lo, hi = manuscript.block_bootstrap_mean_auc_ci(
+            y, [scores], labels, block, B=B, bootstrap_seed=bootstrap_seed)
+        rows.append({"block_len": block, "auc": manuscript.rank_auc(y, scores),
+                     "ci_lo": lo, "ci_hi": hi, "lag1_autocorr": lag1,
+                     "autocorr_at_block": autocorr(block),
+                     "n_runs_min": manuscript.min_label_runs(labels),
+                     "n_flows": len(scored_df)})
+    return pd.DataFrame(rows)
+
+
 def build_exact_tables(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0) -> "dict[str, pd.DataFrame]":
     """Assemble the exact-W2 campaign shards into the definitive report tables.
 
@@ -722,6 +765,8 @@ def build_exact_tables(ws: Workspace, B: int = 2000, bootstrap_seed: int = 0) ->
         "exact_binary_auc": binary_df,
         "exact_per_attack_auc": per_attack_df,
         "exact_vs_probe": vs_probe_df,
+        "flow_dependence": build_flow_dependence_table(
+            test_znorm_df, bootstrap_seed=bootstrap_seed),
     }
 
     n_flagged = int(test_df["approx_flag"].sum())
@@ -739,6 +784,7 @@ _TABLE_FILENAMES = {
     "exact_binary_auc": "exact_binary_auc.csv",
     "exact_per_attack_auc": "exact_per_attack_auc.csv",
     "exact_vs_probe": "exact_vs_probe.csv",
+    "flow_dependence": "flow_dependence.csv",
     "exact_binary_auc_excl_flagged": "exact_binary_auc_excl_flagged.csv",
 }
 
@@ -1097,6 +1143,29 @@ def _render_exact_report(ws: Workspace, tables: "dict[str, pd.DataFrame]", n_val
         lines.append("| :--- | :--- | ---: | :--- |")
         for _, r in excl_flagged.iterrows():
             lines.append(f"| {r['subset']} | {r['scoring']} | {r['auc']:.4f} | {_fmt_ci(r)} |")
+        lines.append("")
+
+    dep = tables.get("flow_dependence")
+    if dep is not None:
+        lines.append("### 2.2 Flow dependence (all_three, znorm)")
+        lines.append("")
+        lines.append(
+            "The §2 intervals resample flows independently, but consecutive flows of the same "
+            "class are correlated (pooled within-class rank lag-1 "
+            f"{dep['lag1_autocorr'].iloc[0]:.3f}), so those intervals are too narrow. Block "
+            "columns are within-class circular block-bootstrap 95% CIs of the AUC in FlowID "
+            "order (block 1 = independent flows); `autocorr` is the within-class rank "
+            "correlation at that lag. The fewest contiguous runs any class has is "
+            f"{int(dep['n_runs_min'].iloc[0])}, so blocks capture dependence within runs only "
+            "(`results/tables/rebuild/exact/flow_dependence.csv`)."
+        )
+        lines.append("")
+        lines.append("| block (flows) | autocorr at that lag | AUC | 95% CI | width |")
+        lines.append("| ---: | ---: | ---: | :--- | ---: |")
+        for _, r in dep.iterrows():
+            lines.append(f"| {int(r['block_len'])} | {r['autocorr_at_block']:.3f} "
+                         f"| {r['auc']:.4f} | [{r['ci_lo']:.4f}, {r['ci_hi']:.4f}] "
+                         f"| {r['ci_hi'] - r['ci_lo']:.4f} |")
         lines.append("")
 
     # --- 3. Per-attack table -------------------------------------------------
