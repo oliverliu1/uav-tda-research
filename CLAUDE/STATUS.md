@@ -78,7 +78,7 @@ attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attributio
   0.8930 is used only where paired with the latency harness cost (frontier).
 - Companion-board latency run: done 2026-11-23 on a Raspberry Pi 5 (n=30, both per-flow arms, all W;
   no throttling). Hang check: Mac-built baselines hang on the Pi, Pi-built do not.
-- Which per-flow interval to quote beside 0.9082: recommendation block-250; author to confirm.
+- Per-flow interval beside 0.9082: decided 2026-11-23, block-250 [0.885, 0.930] with the few-runs caveat.
 - Cross-benchmark evaluation: decided, future work (reword the §V promise).
 
 Decided 2026-11-11: April stash dropped; `archive/poster_eda/node_modules` untracked
