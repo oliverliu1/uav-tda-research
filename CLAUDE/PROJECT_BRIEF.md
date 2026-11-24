@@ -3,7 +3,7 @@
 **Last updated:** 2026-10-18 (body regenerated; decision log at the bottom is append-only and verbatim since 2026-05-23)
 **Authors:** Oliver Liu (Baylor CS alum; Capital One), advised by Dr. Liang Sun and Dr. Natnael Negash (Baylor ME / AVIA Lab)
 **Target venue:** AIAA SciTech 2027, Intelligent Systems track. Extended abstract **submitted** (source: `CLAUDE/SciTech2027_IntelligentSystems_Liu/main.tex`, unchanged since submission). Full manuscript due **December 2026**.
-**Status:** Infrastructure program complete (Phases 1–7, PRs #11–#17, 2026-09-19 → 09-23). Results package complete and machine-generated, **all numbers pending author sign-off**. Remaining work is manuscript-side. See `CLAUDE/STATUS.md` for the current readiness audit and open items.
+**Status:** Infrastructure program complete (Phases 1–7, PRs #11–#17, 2026-09-19 → 09-23). Results package complete and machine-generated, **all six results docs signed off by the author 2026-11-23** (as committed at `68dae1b`). Remaining work is manuscript-side. See `CLAUDE/STATUS.md` for the current readiness audit and open items.
 
 ---
 
@@ -34,14 +34,14 @@ manifold attribution reproduces across seeds: Sybil and Flooding → Network (0.
 and Wormhole → Physical (0.79, 0.74); (3) three of four attributions agree with Zeng et al. (2025);
 Sybil is the single divergence (Zeng predicted C2/source-addressing; topology finds Network).
 
-### 1.2 Since submission (all pending sign-off; every number traces to `results/tables/rebuild/`)
+### 1.2 Since submission (signed off 2026-11-23; every number traces to `results/tables/rebuild/`)
 
 | Result | Value | Source doc | Status |
 |---|---|---|---|
-| Per-flow, val-Normal z-normalized SUM, 10 seeds, probe (K=50, δ=0.2, 200/class) | all-three AUC **0.8930 ± 0.0078** [0.885, 0.900]; N+P 0.8692 ± 0.0122 | `paper/MANUSCRIPT_STATS.md` | pending sign-off |
-| Per-flow, znorm, **full test split** (18,326 test + 3,926 val-Normal), hera δ≤0.01, no sampling/truncation | all-three AUC **0.9082** [0.9033, 0.9131] if flows are independent; they are not: block-250 [0.885, 0.930]; raw 0.9037 | `paper/EXACT_RESULTS.md` §2.2 | pending sign-off; this is the definitive per-flow number |
+| Per-flow, val-Normal z-normalized SUM, 10 seeds, probe (K=50, δ=0.2, 200/class) | all-three AUC **0.8930 ± 0.0078** [0.885, 0.900]; N+P 0.8692 ± 0.0122 | `paper/MANUSCRIPT_STATS.md` | signed off 2026-11-23 |
+| Per-flow, znorm, **full test split** (18,326 test + 3,926 val-Normal), hera δ≤0.01, no sampling/truncation | all-three AUC **0.9082** [0.9033, 0.9131] if flows are independent; they are not: block-250 [0.885, 0.930]; raw 0.9037 | `paper/EXACT_RESULTS.md` §2.2 | signed off 2026-11-23; this is the definitive per-flow number |
 | Per-attack attribution at full-test scale | Sybil→Network 0.888, Flooding→Network 0.787, Blackhole→Physical 0.792, Wormhole→Physical 0.728 | `paper/EXACT_RESULTS.md` | replicates 3-seed and 10-seed exactly |
-| Time-windowed variant (FlowID-order windows, W∈{25,50,100,200}, 80 runs) | best **W=100: 0.9376 ± 0.0005** [0.900, 0.969]; ordered ≥0.869 at every W; shuffle control 0.57 (Δ +0.32–0.37) | `paper/WINDOWED_RESULTS.md` | pending sign-off; lead manuscript contribution |
+| Time-windowed variant (FlowID-order windows, W∈{25,50,100,200}, 80 runs) | best **W=100: 0.9376 ± 0.0005** [0.900, 0.969]; ordered ≥0.869 at every W; shuffle control 0.57 (Δ +0.32–0.37) | `paper/WINDOWED_RESULTS.md` | signed off 2026-11-23; lead manuscript contribution |
 | Window-level attribution | **Sybil flips to C2 at all W** (resolved). 9 of 16 cells have overlapping CIs: all Flooding (C2 at W≤100, Network at W=200), all Wormhole (Network at W≤50, Physical at W≥100), and Blackhole at W=200. Blackhole→Physical leads the other manifolds at W≤100 but its CI reaches AUC 0.5 at every W | `paper/WINDOWED_RESULTS.md` | finding, not defect; must be reconciled with per-flow story |
 | Per-flow latency (full standardize→Rips→W2 path, n=30) | **Mac** (Rosetta-emulated M1 Pro): probe config 3.576 s mean / 3.859 s p95, 0.9082 config 5.789 / 7.137; **Raspberry Pi 5**: 8.357 / 8.793 and 10.546 / 11.562. C2 Rips is 85% of the Mac probe cost, 84% of the Pi's | `paper/LATENCY_RESULTS.md` | contradicts abstract's "1–3 s" on both hosts; 0.9082 pairs with the 0.9082-config cost |
 | Windowed marginal cost | Mac W=25: 0.0075 s/decision (+78 s one-time baseline); Pi 5: 0.0073 (+71 s) | `paper/LATENCY_RESULTS.md` | one decision covers W flows |
@@ -81,7 +81,7 @@ beats N+P (0.893 vs 0.869 at 10 seeds; 0.908 vs 0.874 at full test).
 
 ## 3. Claims and non-claims
 
-**Claims (manuscript-ready, pending sign-off):**
+**Claims (manuscript-ready, signed off 2026-11-23):**
 - Per-attack manifold attribution with dominant-manifold AUCs 0.73–0.89, replicating across 3
   seeds, 10 seeds, and the full test split.
 - Label-free detection AUC 0.908 (all three manifolds, z-normalized, full test) without attack
@@ -147,7 +147,7 @@ beats N+P (0.893 vs 0.869 at 10 seeds; 0.908 vs 0.874 at full test).
 8. "Exact" Wasserstein = hera δ≤0.01; δ=0 and the POT/LAP backend are abandoned.
 9. Sparse-Rips comparisons use calibrated tolerances, never bit equality.
 10. Environment pins stay (py 3.9.7 / numpy 1.20.3 / gudhi 3.11.0); no new runtime dependencies.
-11. Every results doc is a candidate until the authors sign off; no number enters `main.tex` before then.
+11. Every results doc is a candidate until the authors sign off; no number enters `main.tex` before then. (All six were signed off 2026-11-23 as committed at `68dae1b`.)
 
 ---
 
@@ -179,7 +179,7 @@ beats N+P (0.893 vs 0.869 at 10 seeds; 0.908 vs 0.874 at full test).
    478x at W=25; old 0.0602 s / 6.6x superseded). The manuscript text still needs updating.
 5. Reconcile window-level attribution flips (Sybil→C2 etc.) with the per-flow attribution story.
 
-**Author decisions pending:** sign-off on the five results docs; keep vs untrack the third-party
+**Author decisions pending** (list as of 2026-10-18; the results sign-off was given 2026-11-23 and the housekeeping items were decided 2026-11-11, see the decision log): sign-off on the five results docs; keep vs untrack the third-party
 dataset; untrack `archive/poster_eda/node_modules` (3,981 files, 84% of tracked files); delete
 local `outputs/` (32 GB) vs keep for re-runs; drop the April 2026 stash that pins 1.3 GB of
 leakage-era blobs in the pack; prune the five stale `.claude/worktrees/`.
@@ -244,3 +244,4 @@ with its date. If new data contradicts anything here, raise it explicitly and ap
 - **2026-11-23 (Pi harness; hera non-termination):** The first Raspberry Pi 5 latency smoke test froze inside hera (py-spy: first comparison, flow 9367, C2 dim 0). Cause: hera's auction need not terminate when two diagrams differ only by rounding, because the relative-error stop is never met as the true distance approaches 0; bit-identical diagrams return 0 at once. Many flows leave a manifold's top bars unchanged, so on the machine that built the baselines these comparisons are bit-identical, but the Pi was comparing its own diagrams with baselines persisted on the Mac. Reproduced on the Mac by shifting baseline deaths by one unit in the last place, in both the probe and the delta<=0.01 configurations. Added `uav-tda latency --fresh-baselines` (per-flow baselines built on the timed machine, recorded as `baseline_source`), `--exact-arm` (times the full-test configuration behind 0.9082 as mode `per_flow_exact`), stderr progress plus `--watchdog` (faulthandler-based, kills a stuck step and names it), and `uav-tda hang-check` (`uav_tda/hangcheck.py`; committed vs machine-built baselines, both configurations, writes `results/tables/rebuild/hang_check_<host>{,_summary}.csv`); 17 subcommands now. No committed number changes: the Mac runs used same-machine baselines and completed. Manuscript disclosure item: a deployed detector must build its reference diagrams on the deployed hardware or guard the comparison, since it can otherwise stall. The fresh-baseline fallback is now workspace-relative (it previously read the repo-fixed outputs directory even under `--root`).
 - **2026-11-23 (Pi 5 results; per-flow interval; block-10):** Raspberry Pi 5 (4 GB) measured at n=30 with machine-built baselines (run at `41ff8f5`; `latency_uav-pi5*.csv`): per-flow probe 8.357 s mean / 8.793 s p95, 0.9082 configuration 10.546 / 11.562, windowed W=25/50/100/200 0.0073/0.0284/0.1629/1.0144 s; no throttling, no swap. Hang check on the Pi (n=30 flows, 240 comparisons per arm): Mac-built baselines 45 timeouts (probe) and 17 (exact), all at gap 5.55e-17; Pi-built 0 and 0. The same check on the Mac (run at `fdf1837`): 0 timeouts in all four arms. The Mac exact arm (n=30, same flows, separate session) is 5.789 / 7.137 s, so Pi/Mac is 2.34 (probe) and 1.82 (0.9082 config); existing Mac probe numbers (3.576 s, 478x) were kept by author choice. `LATENCY_RESULTS.md` is now rendered from committed CSVs for every host (`uav-tda latency-report`), with host roles in `config.LATENCY_HOSTS`. **Per-flow CI:** the 0.9082 interval [0.9033, 0.9131] treats flows as independent, but consecutive same-class flows are correlated (within-class rank lag-1 0.263, near zero by lag 250); within-class block bootstrap gives [0.8852, 0.9299] at block 250 and [0.8825, 0.9340] at block 500 (`exact/flow_dependence.csv`). Few contiguous runs per class (minimum 2), so indicative. **Windowed intervals (author decision):** report block-10 beside the current intervals (frontier table, figures, snippet). Brief correction: "C2 Rips ≈97% of cost" was wrong; it is 85% of the Mac per-flow probe total.
 - **2026-11-23 (author decision, per-flow interval):** The 0.9082 headline is quoted with the 250-flow block-bootstrap interval [0.8852, 0.9299] (`exact/flow_dependence.csv`), not the independent-flow [0.9033, 0.9131]; the few-contiguous-runs caveat (minimum 2 per class) goes with it. Windowed results report block-10 beside the current intervals.
+- **2026-11-23 (results sign-off):** The author approved all six results docs with no amendments: `paper/EXACT_RESULTS.md`, `MANUSCRIPT_STATS.md`, `ZNORM_RESULTS.md`, `WINDOWED_RESULTS.md`, `LATENCY_RESULTS.md`, `MANUSCRIPT_ARTIFACTS.md`, as committed at `68dae1b` (PR #24 merge) and reviewed on the sign-off page built from that commit. Their numbers may now be used in `main.tex`, with the caveats each doc states (block-250 interval beside 0.9082; block-10 beside the windowed intervals; 0.9082 paired with the full-diagram latency arm; per-host speedups). The generated reports still carry their "pending sign-off" sections, since that text is produced by the generators; this entry is the record of approval. The `main.tex` rewrite is unblocked and not yet started.
