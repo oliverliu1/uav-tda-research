@@ -1,0 +1,153 @@
+Mon 23 Nov 18:04:59 CST 2026
+throttled=0x0
+temp=44.4'C
+41ff8f5 Merge pull request #23 from oliverliu1/feat/pi-latency-harness
+[hang-check] flow 1/30
+[hang-check] flow 2/30
+[hang-check] flow 3/30
+[hang-check] flow 4/30
+[hang-check] flow 5/30
+[hang-check] flow 6/30
+[hang-check] flow 7/30
+[hang-check] flow 8/30
+[hang-check] flow 9/30
+[hang-check] flow 10/30
+[hang-check] flow 11/30
+[hang-check] flow 12/30
+[hang-check] flow 13/30
+[hang-check] flow 14/30
+[hang-check] flow 15/30
+[hang-check] flow 16/30
+[hang-check] flow 17/30
+[hang-check] flow 18/30
+[hang-check] flow 19/30
+[hang-check] flow 20/30
+[hang-check] flow 21/30
+[hang-check] flow 22/30
+[hang-check] flow 23/30
+[hang-check] flow 24/30
+[hang-check] flow 25/30
+[hang-check] flow 26/30
+[hang-check] flow 27/30
+[hang-check] flow 28/30
+[hang-check] flow 29/30
+[hang-check] flow 30/30
+sysctl: cannot stat /proc/sys/hw/optional/arm64: No such file or directory
+sysctl: cannot stat /proc/sys/sysctl/proc_translated: No such file or directory
+sysctl: cannot stat /proc/sys/machdep/cpu/brand_string: No such file or directory
+ baseline config  n_comparisons  n_equal  n_near  n_timeout  n_error  n_flows  n_flows_timeout  max_ok_s
+committed  exact            240       28      17         17        0       30               17  3.345825
+committed  probe            240       28      45         45        0       30               29  0.036535
+    fresh  exact            240       18       0          0        0       30                0  4.577616
+    fresh  probe            240       56       1          0        0       30                0  0.034076
+wrote /home/uav/uav-tda-research/results/tables/rebuild/hang_check_uav-pi5.csv
+wrote /home/uav/uav-tda-research/results/tables/rebuild/hang_check_uav-pi5_summary.csv
+Mon 23 Nov 18:24:25 CST 2026
+throttled=0x0
+temp=48.3'C
+sysctl: cannot stat /proc/sys/hw/optional/arm64: No such file or directory
+sysctl: cannot stat /proc/sys/sysctl/proc_translated: No such file or directory
+sysctl: cannot stat /proc/sys/machdep/cpu/brand_string: No such file or directory
+[latency] baselines (fresh)
+[latency] per_flow: start
+[latency] per_flow 1/30: flow 50
+[latency] per_flow 2/30: flow 302
+[latency] per_flow 3/30: flow 615
+[latency] per_flow 4/30: flow 749
+[latency] per_flow 5/30: flow 1377
+[latency] per_flow 6/30: flow 3208
+[latency] per_flow 7/30: flow 4937
+[latency] per_flow 8/30: flow 5080
+[latency] per_flow 9/30: flow 5633
+[latency] per_flow 10/30: flow 7221
+[latency] per_flow 11/30: flow 9220
+[latency] per_flow 12/30: flow 9353
+[latency] per_flow 13/30: flow 9955
+[latency] per_flow 14/30: flow 10156
+[latency] per_flow 15/30: flow 10254
+[latency] per_flow 16/30: flow 11107
+[latency] per_flow 17/30: flow 11578
+[latency] per_flow 18/30: flow 11655
+[latency] per_flow 19/30: flow 11888
+[latency] per_flow 20/30: flow 12289
+[latency] per_flow 21/30: flow 13358
+[latency] per_flow 22/30: flow 13371
+[latency] per_flow 23/30: flow 14016
+[latency] per_flow 24/30: flow 14887
+[latency] per_flow 25/30: flow 14944
+[latency] per_flow 26/30: flow 15563
+[latency] per_flow 27/30: flow 15709
+[latency] per_flow 28/30: flow 16710
+[latency] per_flow 29/30: flow 17126
+[latency] per_flow 30/30: flow 17775
+[latency] per_flow_exact: start
+[latency] per_flow_exact 1/30: flow 50
+[latency] per_flow_exact 2/30: flow 302
+[latency] per_flow_exact 3/30: flow 615
+[latency] per_flow_exact 4/30: flow 749
+[latency] per_flow_exact 5/30: flow 1377
+[latency] per_flow_exact 6/30: flow 3208
+[latency] per_flow_exact 7/30: flow 4937
+[latency] per_flow_exact 8/30: flow 5080
+[latency] per_flow_exact 9/30: flow 5633
+[latency] per_flow_exact 10/30: flow 7221
+[latency] per_flow_exact 11/30: flow 9220
+[latency] per_flow_exact 12/30: flow 9353
+[latency] per_flow_exact 13/30: flow 9955
+[latency] per_flow_exact 14/30: flow 10156
+[latency] per_flow_exact 15/30: flow 10254
+[latency] per_flow_exact 16/30: flow 11107
+[latency] per_flow_exact 17/30: flow 11578
+[latency] per_flow_exact 18/30: flow 11655
+[latency] per_flow_exact 19/30: flow 11888
+[latency] per_flow_exact 20/30: flow 12289
+[latency] per_flow_exact 21/30: flow 13358
+[latency] per_flow_exact 22/30: flow 13371
+[latency] per_flow_exact 23/30: flow 14016
+[latency] per_flow_exact 24/30: flow 14887
+[latency] per_flow_exact 25/30: flow 14944
+[latency] per_flow_exact 26/30: flow 15563
+[latency] per_flow_exact 27/30: flow 15709
+[latency] per_flow_exact 28/30: flow 16710
+[latency] per_flow_exact 29/30: flow 17126
+[latency] per_flow_exact 30/30: flow 17775
+[latency] windowed W=25: start
+[latency] windowed W=25: building val-Normal baseline
+[latency] windowed W=25: timing 30 windows
+[latency] windowed W=50: start
+[latency] windowed W=50: building val-Normal baseline
+[latency] windowed W=50: timing 30 windows
+[latency] windowed W=100: start
+[latency] windowed W=100: building val-Normal baseline
+[latency] windowed W=100: timing 30 windows
+[latency] windowed W=200: start
+[latency] windowed W=200: building val-Normal baseline
+[latency] windowed W=200: timing 30 windows
+wrote /home/uav/uav-tda-research/paper/LATENCY_RESULTS.md
+	Command being timed: "uav-tda latency --n 30 --fresh-baselines --exact-arm"
+	User time (seconds): 847.44
+	System time (seconds): 1.29
+	Percent of CPU this job got: 100%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 14:08.54
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 434176
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 494307
+	Voluntary context switches: 196
+	Involuntary context switches: 9204
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 480
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 16384
+	Exit status: 0
+Mon 23 Nov 18:38:33 CST 2026
+throttled=0x0
+temp=47.2'C
+ALL DONE

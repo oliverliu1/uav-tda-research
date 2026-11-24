@@ -1,4 +1,4 @@
-# Project Status — 2026-11-23
+# Project Status — 2026-11-23 (evening)
 
 One page on where everything stands. Framing and decisions: `CLAUDE/PROJECT_BRIEF.md`.
 Manuscript audit (dated 2026-10-18 snapshot, not updated): `CLAUDE/MANUSCRIPT_READINESS_AUDIT.md`. Agent rules: root `CLAUDE.md`.
@@ -16,7 +16,7 @@ Human entry point: `README.md`.
   remains.
 - **Phase 8 (manuscript artifacts):** merged to `main` (PR #19, after the audit/cleanup PR #18;
   2026-11-10) (`uav-tda artifacts`): full-path frontier, unique window counts, operating points,
-  six figures, three new snippets, backfilled sidecars. Fast suite 192 passed / 0 skipped; ruff
+  six figures, three new snippets, backfilled sidecars. Fast suite 200 passed / 0 skipped; ruff
   clean; CI green (runner pinned to `ubuntu-24.04`). Report:
   `paper/MANUSCRIPT_ARTIFACTS.md`; figures: `results/figures/manuscript/`.
 
@@ -24,10 +24,10 @@ Human entry point: `README.md`.
 
 | Doc | What it holds | Headline |
 |---|---|---|
-| `paper/EXACT_RESULTS.md` | full test split, hera δ≤0.01, no sampling | znorm all-three AUC **0.9082 [0.9033, 0.9131]**; attribution replicates |
+| `paper/EXACT_RESULTS.md` | full test split, hera δ≤0.01, no sampling | znorm all-three AUC **0.9082**; CI [0.9033, 0.9131] if flows are independent, **[0.885, 0.930]** with block-250 (§2.2); attribution replicates |
 | `paper/MANUSCRIPT_STATS.md` | 10 seeds, within-seed bootstrap CIs, probe config, fixed reference set | znorm all-three 0.8930 ± 0.0078 |
 | `paper/WINDOWED_RESULTS.md` | W ∈ {25, 50, 100, 200}, 80 runs, shuffle control | W=100 0.9376 ± 0.0005; shuffle Δ +0.32–0.37; Sybil flips to C2 at window level |
-| `paper/LATENCY_RESULTS.md` | full inference path, per-flow + windowed | per-flow 3.576 s mean / 3.859 s p95 (Rosetta-emulated M1 Pro); W=25 0.0075 s/decision |
+| `paper/LATENCY_RESULTS.md` | full inference path, per-flow + windowed | two hosts. Mac (Rosetta M1 Pro): probe 3.576 s, 0.9082 config 5.789 s; Raspberry Pi 5: 8.357 s and 10.546 s; W=25 0.0075 / 0.0073 s |
 | `paper/ZNORM_RESULTS.md` | 3-seed raw vs znorm; seed-123 reanalysis | 0 timeouts at 30 s |
 | `paper/MANUSCRIPT_ARTIFACTS.md` | full-path frontier, unique window counts, FPR/TPR, caveats | W=25 is **478x** cheaper per decision than per-flow; all-three znorm FPR 0.0555 / TPR 0.5703 |
 
@@ -37,7 +37,7 @@ Every number was recomputed from its CSVs during the audit; zero mismatches. As-
 ## What must change in the manuscript (short list; details in the audit)
 
 1. "Exact Wasserstein" → "high-precision (δ≤0.01)"; δ=0 is intractable.
-2. "1–3 s per flow" → 3.58 s mean, on an emulated workstation, not companion hardware.
+2. "1–3 s per flow" → 3.58 s (Mac, emulated) and 8.36 s (Raspberry Pi 5) for the probe configuration; 0.9082 itself costs 5.79 s and 10.55 s.
 3. "C2 adds noise; N+P is best" → all-three is best under z-normalized scoring.
 4. W2 ground metric is L2 not L∞; seed does not control k-medoids or Wasserstein; feature count is
    20 raw / 22 encoded; the val-Normal threshold was never computed in the abstract's lineage
@@ -62,7 +62,9 @@ attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attributio
   3x too narrow). W=100 is 0.9376 [0.900, 0.969], which overlaps the per-flow full-test CI, so
   "windowing beats per-flow" is not established. Adjacent windows are correlated (lag-1 0.44 to
   0.70), so these CIs are still optimistic; block-10 bootstrap at W=100 is [0.874, 0.985].
-  The per-flow full-test CI has not been checked for the same dependence.
+  The per-flow full-test CI has the same problem: block-250 is [0.885, 0.930] against [0.903, 0.913]
+  (`exact/flow_dependence.csv`). Block-10 is reported beside the current windowed intervals
+  (all-three z-norm only; attribution and contamination have no block version).
 - Also in the report: windowed cost is Rips + W2 (slicing inside W2) with no scaler stage
   (pre-scaled inputs; per-flow scaler ~2.51 ms) and no baseline setup, so the W=25 speedup is
   upper-end; per-flow vs windowed AUC units differ (M2); contamination uses an empirical Q95
@@ -74,10 +76,9 @@ attribution, ROC); snippets `full_path_frontier_pgfplots.tex`, `exact_attributio
 
 - Per-flow headline estimand: decided 2026-11-11, full-test δ≤0.01 AUC 0.9082; the 10-seed probe
   0.8930 is used only where paired with the latency harness cost (frontier).
-- Companion-board latency run: Raspberry Pi 5 (4 GB, active cooler, 27 W supply, USB 3 SSD) is set up
-  and passed a 3-sample smoke test 2026-11-23 (not for citation). Next: `uav-tda hang-check` and
-  `uav-tda latency --fresh-baselines --exact-arm` (n=30) on the Pi. The report text still calls every
-  host "workstation-class", so copy back only the CSVs/sidecars; `artifacts` then needs `--latency-host`.
+- Companion-board latency run: done 2026-11-23 on a Raspberry Pi 5 (n=30, both per-flow arms, all W;
+  no throttling). Hang check: Mac-built baselines hang on the Pi, Pi-built do not.
+- Which per-flow interval to quote beside 0.9082: recommendation block-250; author to confirm.
 - Cross-benchmark evaluation: decided, future work (reword the §V promise).
 
 Decided 2026-11-11: April stash dropped; `archive/poster_eda/node_modules` untracked
@@ -91,6 +92,6 @@ Stale worktrees and merged branches were pruned 2026-11-10; only `main` remains.
 ## Regenerating anything
 
 `make test` for the fast suite. `uav-tda <x>-report` rebuilds a results doc from committed CSVs
-with no recompute (`znorm-report`, `manuscript-report`, `windowed-report`, `exact-report`, `artifacts`);
+with no recompute (`latency-report`, `znorm-report`, `manuscript-report`, `windowed-report`, `exact-report --reuse-insensitivity`, `artifacts`);
 `uav-tda latency` re-measures. `outputs/` is complete, so `uav-tda tda` never needs re-running.
 Install only with `pip install -e ".[dev]"`.

@@ -27,7 +27,7 @@ from matplotlib.colors import Normalize  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
 from sklearn.metrics import roc_auc_score, roc_curve  # noqa: E402
 
-from . import artifacts, metrics  # noqa: E402
+from . import artifacts, config, metrics  # noqa: E402
 from .exact import assemble_distances  # noqa: E402
 from .manuscript import _ATTRIBUTION_ROW_ORDER  # noqa: E402
 from .metrics import NORMAL  # noqa: E402
@@ -151,6 +151,11 @@ def fig_frontier(frontier: pd.DataFrame, exact_ref_auc: float, out_path,
         def _err(df):
             return np.vstack([df["auc_mean"] - df["auc_ci_lo"], df["auc_ci_hi"] - df["auc_mean"]])
 
+        block = win.dropna(subset=["auc_block10_lo"]) if "auc_block10_lo" in win else win.iloc[0:0]
+        if len(block):
+            ax.vlines(block["cost_s"], block["auc_block10_lo"], block["auc_block10_hi"],
+                      color=ARM_COLORS["ordered"], lw=0.6, ls=":", zorder=2,
+                      label="block-10 CI (windows)")
         ax.errorbar(win["cost_s"], win["auc_mean"], yerr=_err(win), fmt="o-",
                     color=ARM_COLORS["ordered"], capsize=2, lw=0.8, elinewidth=0.8,
                     label="windowed (ordered)", zorder=3)
@@ -158,14 +163,15 @@ def fig_frontier(frontier: pd.DataFrame, exact_ref_auc: float, out_path,
                     color=ARM_COLORS["per_flow"], capsize=2, elinewidth=0.8, ms=5,
                     label=pf_label, zorder=3)
         for _, r in win.iterrows():
-            ax.annotate(_w_label(r["w"]), (r["cost_s"], r["auc_ci_hi"]),
+            top = np.nanmax([r["auc_ci_hi"], r.get("auc_block10_hi", np.nan)])
+            ax.annotate(_w_label(r["w"]), (r["cost_s"], top),
                         xytext=(0, 2), textcoords="offset points", ha="center", va="bottom",
                         fontsize=BASE_FONT_PT - 1)
         ax.set_xscale("log")
         ax.set_xlabel("Full-path cost per decision (s)")
         ax.set_ylabel("AUC (z-norm, all three)")
-        lo = min(frontier["auc_ci_lo"].min(), exact_ref_auc)
-        hi = max(frontier["auc_ci_hi"].max(), exact_ref_auc)
+        lo = min(frontier["auc_ci_lo"].min(), exact_ref_auc, *block.get("auc_block10_lo", []))
+        hi = max(frontier["auc_ci_hi"].max(), exact_ref_auc, *block.get("auc_block10_hi", []))
         pad = 0.15 * (hi - lo)
         ax.set_ylim(lo - 2.6 * pad, hi + 1.6 * pad)
         ax.set_xlim(frontier["cost_s"].min() / 2.5, frontier["cost_s"].max() * 2.5)
@@ -187,8 +193,11 @@ def fig_frontier(frontier: pd.DataFrame, exact_ref_auc: float, out_path,
 
 def fig_detection_vs_w(detection: pd.DataFrame, per_flow_auc: float, exact_ref_auc: float,
                        out_path, source: str = "windowed/windowed_detection.csv",
-                       per_flow_n_runs=None) -> Path:
+                       per_flow_n_runs=None, dependence=None) -> Path:
     """Znorm all-three AUC vs W (log2 x), ordered vs shuffled with CI bands.
+
+    ``dependence`` (``windowed/window_dependence.csv``) adds the ordered arm's
+    block-bootstrap interval as dotted edges.
 
     ``per_flow_n_runs`` (the probe's seed count) names the per-flow reference line.
     """
@@ -202,6 +211,10 @@ def fig_detection_vs_w(detection: pd.DataFrame, per_flow_auc: float, exact_ref_a
             c = ARM_COLORS[arm]
             ax.fill_between(d["w"], d["ci_lo"], d["ci_hi"], color=c, alpha=0.25, lw=0)
             ax.plot(d["w"], d["mean"], "o-", color=c, label=f"windowed, {arm}")
+        if dependence is not None:
+            dep = dependence[dependence["block_len"] == config.REPORT_BLOCK_LEN].sort_values("w")
+            for col, lab in (("ci_lo", "block-10 CI (ordered)"), ("ci_hi", None)):
+                ax.plot(dep["w"], dep[col], ls=":", lw=0.8, color=ARM_COLORS["ordered"], label=lab)
         ax.axhline(per_flow_auc, color=ARM_COLORS["per_flow"], ls="-.", lw=0.8,
                    label=pf_label)
         ax.axhline(exact_ref_auc, color=ARM_COLORS["exact"], ls="--", lw=0.8,
@@ -215,7 +228,7 @@ def fig_detection_vs_w(detection: pd.DataFrame, per_flow_auc: float, exact_ref_a
         ax.set_xlabel("Window size W (flows)")
         ax.set_ylabel("AUC (z-norm, all three)")
         ax.set_ylim(0.4, 1.0)
-        ax.legend(loc="center right", bbox_to_anchor=(1.0, 0.575))
+        ax.legend(loc="center left", bbox_to_anchor=(0.0, 0.49), labelspacing=0.25)
     return _save(fig, out_path, {
         "figure": "detection_vs_w", "source": source,
         "per_flow_source": "windowed/compute_frontier.csv (per_flow auc_mean)",
@@ -558,7 +571,8 @@ def build_all_figures(rebuild_dir=None, out_dir=None, latency_host=None) -> dict
         "detection_vs_w": fig_detection_vs_w(
             pd.read_csv(windowed_dir / "windowed_detection.csv"), per_flow_auc,
             exact_ref_auc, out / FIGURE_FILES["detection_vs_w"],
-            per_flow_n_runs=per_flow_n_runs),
+            per_flow_n_runs=per_flow_n_runs,
+            dependence=pd.read_csv(windowed_dir / "window_dependence.csv")),
         "contamination": fig_contamination(
             pd.read_csv(windowed_dir / "contamination_curve.csv", dtype={"bin": str}),
             out / FIGURE_FILES["contamination"], n_repeats=n_repeats),

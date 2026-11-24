@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import metrics
+from . import config, metrics
 from .config import WINDOW_SIZES
 from .exact import assemble_distances
 from .manuscript import _ATTRIBUTION_COLUMNS, _ATTRIBUTION_ROW_ORDER, _BINARY_SUBSET_ORDER, _NODE_Y_OFFSET
@@ -55,8 +55,8 @@ def find_latency_summary(rebuild_dir=None, host=None) -> Path:
 
     Per-mode detail files (``latency_<host>_{per_flow,w25,...}.csv``) carry
     per-sample columns instead and are skipped. With ``host`` the summary
-    must be ``latency_<host>.csv``. Without it, exactly one summary must be
-    present; several raise ``ValueError`` naming them (pass ``host`` /
+    must be ``latency_<host>.csv``. Without it, the only summary present is used,
+    or `config.LATENCY_PRIMARY_HOST`'s when several are; several without it raise ``ValueError`` naming them (pass ``host`` /
     ``uav-tda artifacts --latency-host`` to choose).
     """
     rebuild = _rebuild(rebuild_dir)
@@ -73,6 +73,9 @@ def find_latency_summary(rebuild_dir=None, host=None) -> Path:
             raise ValueError(f"no latency summary CSV latency_{host}.csv (header "
                              f"'mode,w,stage,...') in {rebuild}; summaries present: {names}")
         return hit[0]
+    primary = [p for p in found if p.name == f"latency_{config.LATENCY_PRIMARY_HOST}.csv"]
+    if len(found) > 1 and primary:
+        return primary[0]
     if len(found) != 1:
         hint = (" -- several hosts present; choose one with host=... "
                 "(CLI: --latency-host <host>)" if found else "")
@@ -143,7 +146,62 @@ def build_full_path_frontier(rebuild_dir=None, latency_host=None) -> pd.DataFram
     df = pd.DataFrame(rows)
     df["speedup_vs_per_flow"] = df["cost_s"].iloc[0] / df["cost_s"]
     df["cost_n"] = df.pop("_cost_n")
+    block = _block_intervals(rebuild)
+    df["auc_block10_lo"] = df["w"].map(lambda w: block.get(w, (np.nan, np.nan))[0])
+    df["auc_block10_hi"] = df["w"].map(lambda w: block.get(w, (np.nan, np.nan))[1])
     return df
+
+
+def _block_intervals(rebuild: Path) -> dict:
+    """{W: (lo, hi)} of the block-`config.REPORT_BLOCK_LEN` interval, or {} if not computed."""
+    path = rebuild / "windowed" / "window_dependence.csv"
+    if not path.exists():
+        return {}
+    dep = pd.read_csv(path, float_precision="round_trip")
+    dep = dep[dep["block_len"] == config.REPORT_BLOCK_LEN]
+    return {float(r["w"]): (r["ci_lo"], r["ci_hi"]) for _, r in dep.iterrows()}
+
+
+def latency_by_host(rebuild_dir=None) -> pd.DataFrame:
+    """Per-decision ``total_s`` stats for every measured host, primary host first.
+
+    ``ratio_to_primary`` divides by the primary host's mean for the same
+    decision (NaN when that host lacks it); ``speedup_vs_per_flow`` is within
+    a host, against its probe-configuration per-flow mean. The exact arm is
+    read from the detail CSV.
+    """
+    rebuild = _rebuild(rebuild_dir)
+    entries = []
+    for path in sorted(rebuild.glob("latency_*.csv")):
+        with open(path) as fh:
+            if tuple(fh.readline().strip().split(","))[:3] != _LATENCY_SUMMARY_HEADER:
+                continue
+        host = path.name[len("latency_"):-len(".csv")]
+        lat = pd.read_csv(path, float_precision="round_trip")
+        rows = lat[(lat["stage"] == "total_s") & (lat["mode"] != "per_flow_exact")]
+        recs = [{"mode": r["mode"], "w": r["w"], "mean_s": r["mean_s"],
+                 "median_s": r["median_s"], "p95_s": r["p95_s"], "n": int(r["n"])}
+                for _, r in rows.iterrows()]
+        detail = rebuild / f"latency_{host}_per_flow_exact.csv"
+        if detail.exists():
+            t = pd.read_csv(detail, float_precision="round_trip")["total_s"]
+            recs.insert(1, {"mode": "per_flow_exact", "w": np.nan, "mean_s": t.mean(),
+                            "median_s": t.median(), "p95_s": float(np.percentile(t, 95)),
+                            "n": len(t)})
+        entries.append((host != config.LATENCY_PRIMARY_HOST, host, recs))
+    entries.sort(key=lambda e: e[:2])
+    rows, primary = [], {}
+    for i, (_, host, recs) in enumerate(entries):
+        pf = next(r["mean_s"] for r in recs if r["mode"] == "per_flow")
+        for r in recs:
+            key = (r["mode"], None if pd.isna(r["w"]) else float(r["w"]))
+            if i == 0:
+                primary[key] = r["mean_s"]
+            base = primary.get(key)
+            rows.append({"host": host, "label": config.LATENCY_HOSTS.get(host, {}).get("label", host),
+                         **r, "ratio_to_primary": np.nan if base is None else r["mean_s"] / base,
+                         "speedup_vs_per_flow": pf / r["mean_s"]})
+    return pd.DataFrame(rows)
 
 
 DEFAULT_FRONTIER_SOURCE = "windowed/compute_frontier.csv + latency_<host>.csv"
@@ -182,6 +240,15 @@ def emit_full_path_frontier_pgfplots(df: pd.DataFrame, source: str = DEFAULT_FRO
             r"\node[font=\small, anchor=south] at "
             f"(axis cs:{r['cost_s']:.3g},{r['auc_ci_hi']:.3f}) {{{label}}};"
         )
+    if "auc_block10_lo" in windowed and windowed["auc_block10_lo"].notna().any():
+        lines += ["% block-10 bootstrap 95% CI (correlated windows; wider than the bars above)",
+                  r"\addplot+[only marks, mark=none, error bars/.cd, y dir=both, y explicit] "
+                  "coordinates {"]
+        for _, r in windowed.dropna(subset=["auc_block10_lo"]).iterrows():
+            lines.append(f"    ({r['cost_s']:.3g}, {r['auc_mean']:.3f}) "
+                         f"+= (0, {r['auc_block10_hi'] - r['auc_mean']:.3f}) "
+                         f"-= (0, {r['auc_mean'] - r['auc_block10_lo']:.3f})")
+        lines.append("};")
     return "\n".join(lines)
 
 
@@ -495,6 +562,8 @@ def load_report_frames(rebuild_dir=None, latency_host=None) -> dict:
         "frontier": build_full_path_frontier(rebuild, latency_host=latency_host),
         "latency": pd.read_csv(find_latency_summary(rebuild, host=latency_host),
                                float_precision="round_trip"),
+        "latency_by_host": latency_by_host(rebuild),
+        "flow_dependence": pd.read_csv(rebuild / "exact" / "flow_dependence.csv"),
         "compute_frontier": pd.read_csv(rebuild / "windowed" / "compute_frontier.csv",
                                         dtype={"row": str}),
         "operating_points": operating_point_table(rebuild),
@@ -538,6 +607,19 @@ def _md_table(header, rows) -> list:
            "| " + " | ".join("---:" if i else "---" for i in range(len(header))) + " |"]
     out += ["| " + " | ".join(str(c) for c in r) + " |" for r in rows]
     return out
+
+
+def _flow_dependence_lines(dep: pd.DataFrame) -> list:
+    """Caption-level caveat for the per-flow headline interval (all three, z-norm)."""
+    iid = dep[dep["block_len"] == 1].iloc[0]
+    parts = ", ".join(f"block {int(r['block_len'])}: {_ci(r['ci_lo'], r['ci_hi'])}"
+                      for _, r in dep[dep["block_len"] > 1].iterrows())
+    return [
+        f"- *Per-flow headline interval:* {iid['auc']:.4f} treats flows as independent "
+        f"({_ci(iid['ci_lo'], iid['ci_hi'])} by this bootstrap), but consecutive same-class "
+        f"flows are correlated (rank lag-1 {iid['lag1_autocorr']:.3f}). Block-bootstrap "
+        f"intervals ({parts}) are wider; `paper/EXACT_RESULTS.md` §2.2.",
+    ]
 
 
 def render_artifacts_report(frames: dict, inventory) -> str:
@@ -627,8 +709,12 @@ def render_artifacts_report(frames: dict, inventory) -> str:
         *tie_lines,
         "- *Windowed intervals:* ordered-arm CIs resample each window once per replicate across "
         "all repeats and treat windows as independent. Neighbouring windows are correlated, so "
-        "they are optimistic; `paper/WINDOWED_RESULTS.md` §2 gives block-bootstrap intervals, and "
-        "§6 lists dominant cells whose CI reaches AUC 0.5.",
+        f"they are optimistic: the frontier table, figures and snippet give the block-"
+        f"{config.REPORT_BLOCK_LEN} bootstrap interval beside each. These cover the all-three "
+        f"z-norm detection AUC only; attribution and contamination CIs have no block version. "
+        "`paper/WINDOWED_RESULTS.md` §2 has every block length; §6 lists dominant cells whose "
+        "CI reaches AUC 0.5.",
+        *_flow_dependence_lines(frames["flow_dependence"]),
         f"- *Windowed cost scope:* the latency harness's windowed `total_s` is Rips + W2 "
         f"(per-dimension diagram slicing inside the timed W2 call; no top-K truncation). It "
         f"has no scaler stage: window flows are read pre-scaled, so scaling them is untimed "
@@ -670,15 +756,32 @@ def render_artifacts_report(frames: dict, inventory) -> str:
         rows.append([
             "per-flow" if is_pf else f"W={int(r['w'])}",
             f"{r['auc_mean']:.4f}", _ci(r["auc_ci_lo"], r["auc_ci_hi"]),
+            "–" if pd.isna(r["auc_block10_lo"]) else _ci(r["auc_block10_lo"],
+                                                         r["auc_block10_hi"]),
             f"{r['cost_s']:.6f}", f"{r['cost_p95_s']:.6f}", f"{r['cost_per_flow_s']:.3e}",
             f"{r['speedup_vs_per_flow']:.1f}×",
             "–" if is_pf else f"{r['campaign_marginal_s']:.6f}",
             f"{r['w2_only_per_flow_s']:.4f}" if is_pf else "–",
             "–" if is_pf else f"{r['baseline_setup_s']:.2f}",
         ])
-    L += _md_table(["row", "AUC", "95% CI", "cost s/decision (mean)", "cost p95 s",
+    L += _md_table(["row", "AUC", "95% CI (independent windows)",
+                    f"95% CI (block-{config.REPORT_BLOCK_LEN})", "cost s/decision (mean)", "cost p95 s",
                     "cost s/flow", "speedup vs per-flow", "campaign marginal s",
                     "W2-only per-flow s (old)", "baseline setup s"], rows)
+    by_host = frames["latency_by_host"]
+    if by_host["host"].nunique() > 1:
+        L += ["", "### 2.1 Per-decision cost by host", "",
+              "The frontier above uses the primary host. Ratios to it are not pure hardware "
+              "comparisons (software stacks and baseline sources differ). Speedups are within a "
+              "host and compare one window with one flow. The full-diagram row pairs with the "
+              "0.9082 AUC, the probe row with 0.8930. Details: `paper/LATENCY_RESULTS.md`.", ""]
+        names = {"per_flow": "per-flow, probe", "per_flow_exact": "per-flow, full diagrams"}
+        rows = [[r["label"], names.get(r["mode"], f"W={int(r['w'])}" if pd.notna(r["w"]) else ""),
+                 f"{r['mean_s']:.4f}", f"{r['median_s']:.4f}", f"{r['p95_s']:.4f}", int(r["n"]),
+                 "–" if pd.isna(r["ratio_to_primary"]) else f"{r['ratio_to_primary']:.2f}",
+                 f"{r['speedup_vs_per_flow']:.1f}×"] for _, r in by_host.iterrows()]
+        L += _md_table(["host", "decision", "mean s", "median s", "p95 s", "n",
+                        "ratio to primary", "speedup vs that host's per-flow probe"], rows)
     L += [
         "",
         "## 3. Operating points (val-Normal Q95 threshold, full test)",
@@ -788,6 +891,9 @@ def generate_artifacts(root=None, latency_host=None) -> dict:
 
     table("full_path_frontier.csv", frames["frontier"], frontier_src,
           "artifacts.build_full_path_frontier")
+    table("latency_by_host.csv", frames["latency_by_host"],
+          "latency_<host>.csv + latency_<host>_per_flow_exact.csv (every host)",
+          "artifacts.latency_by_host")
     table("unique_window_counts.csv", frames["unique_windows"],
           "windowed/run_w{W}_ordered*.csv", "artifacts.unique_window_counts")
     table("operating_points.csv", frames["operating_points"],

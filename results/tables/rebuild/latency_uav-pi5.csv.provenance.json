@@ -1,0 +1,31 @@
+{
+  "artifact": "latency_uav-pi5.csv",
+  "created_utc": "2026-11-24T00:38:33.667087+00:00",
+  "git_sha": "41ff8f5914ea31e678f131c86dda9999da816e38",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "baseline_source": "fresh",
+    "exact_arm": true,
+    "hostname": "uav-pi5",
+    "machine_info": {
+      "cpu_brand": "unknown",
+      "gudhi_version": "3.11.0",
+      "hardware_arch": "arm64",
+      "hostname": "uav-pi5",
+      "logical_cores": 4,
+      "machine": "aarch64",
+      "physical_cores": 4,
+      "platform": "Linux",
+      "python_version": "3.9.23",
+      "rosetta_translated": false,
+      "timestamp_utc": "2026-11-24T00:24:26.082550+00:00"
+    },
+    "n": 30
+  },
+  "uav_tda_version": "0.1.0"
+}

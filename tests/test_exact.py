@@ -562,7 +562,8 @@ def test_build_exact_tables_shapes_ci_and_dominant_flags(tmp_path, monkeypatch):
 
     tables = exact.build_exact_tables(ws, B=20, bootstrap_seed=0)
 
-    assert set(tables) == {"exact_binary_auc", "exact_per_attack_auc", "exact_vs_probe"}
+    assert set(tables) == {"exact_binary_auc", "exact_per_attack_auc", "exact_vs_probe",
+                           "flow_dependence"}
 
     binary = tables["exact_binary_auc"]
     assert len(binary) == 14  # 7 subsets x {raw, znorm}
@@ -848,3 +849,38 @@ def test_write_exact_report_flags_dominance_mismatch(tmp_path, monkeypatch):
     report_path = exact.write_exact_report(ws, tables)
     text = report_path.read_text()
     assert "MISMATCH" in text
+
+
+# ---------------------------------------------------------------------------
+# Flow dependence (sensitivity of the independent-flow interval)
+# ---------------------------------------------------------------------------
+
+
+def _scored_frame(scores, labels):
+    return pd.DataFrame({"label": labels, "W2_all_three": scores})
+
+
+def test_flow_dependence_separates_iid_from_correlated_scores():
+    rng = np.random.default_rng(0)
+    n = 2000
+    labels = np.repeat(["Normal Traffic", "Sybil Attack"], n)
+    iid = rng.normal(size=2 * n) + np.repeat([0.0, 1.0], n)
+    ar = np.zeros(2 * n)
+    eps = rng.normal(size=2 * n)
+    for i in range(1, 2 * n):
+        ar[i] = 0.95 * ar[i - 1] + eps[i] * np.sqrt(1 - 0.95 ** 2)
+    corr = ar + np.repeat([0.0, 1.0], n)
+    a = exact.build_flow_dependence_table(_scored_frame(iid, labels), B=200)
+    b = exact.build_flow_dependence_table(_scored_frame(corr, labels), B=200)
+    assert list(a["block_len"]) == list(exact.FLOW_DEPENDENCE_BLOCK_LENGTHS)
+    assert abs(a["lag1_autocorr"].iloc[0]) < 0.1
+    assert b["lag1_autocorr"].iloc[0] > 0.8
+
+    def width(t, k):
+        r = t[t["block_len"] == k].iloc[0]
+        return r["ci_hi"] - r["ci_lo"]
+
+    assert width(b, 50) > 2.5 * width(b, 1)
+    assert width(a, 50) < 1.5 * width(a, 1)
+    assert (a["auc"] == a["auc"].iloc[0]).all()
+    assert (a["n_flows"] == 2 * n).all() and (a["n_runs_min"] == 1).all()

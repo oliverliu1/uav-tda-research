@@ -82,6 +82,18 @@ PROBE_DELTA = 0.2
 # manuscript's ten-seed bootstrap-CI evaluation (Phase 4).
 MANUSCRIPT_SEEDS = (42, 7, 123, 0, 1, 2, 3, 4, 5, 6)
 
+# Latency hosts (paper/LATENCY_RESULTS.md). The primary host's numbers feed the
+# manuscript frontier; hosts not listed here are reported without a class claim.
+# Board identity is author-recorded (it is not in the machine_info sidecar).
+LATENCY_PRIMARY_HOST = "Olivers-MacBook-Pro.local"
+LATENCY_HOSTS = {
+    "Olivers-MacBook-Pro.local": {"role": "workstation", "label": "Apple M1 Pro laptop"},
+    "uav-pi5": {"role": "companion",
+                "label": "Raspberry Pi 5 (4 GB, active cooler, 27 W supply)"},
+}
+# Window-dependence block length quoted next to the independent-window intervals.
+REPORT_BLOCK_LEN = 10
+
 # Time-windowed variant (Phase 5). See docs/superpowers/specs/2026-09-21-windowed-variant-design.md
 WINDOW_SIZES = (25, 50, 100, 200)
 WINDOWED_REPEATS = 10

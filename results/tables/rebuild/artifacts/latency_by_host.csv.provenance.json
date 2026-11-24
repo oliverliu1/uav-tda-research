@@ -1,0 +1,17 @@
+{
+  "artifact": "latency_by_host.csv",
+  "artifact_sha256": "3496dd1e465ce119a98cffc8e1c16636091d2b11aee945c0830701f785181e6b",
+  "created_utc": "2026-11-24T03:32:11.318579+00:00",
+  "git_sha": "4e8a6babfb3dc5b5003509da3563c72b4b8c0400",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "builder": "artifacts.latency_by_host",
+    "source": "latency_<host>.csv + latency_<host>_per_flow_exact.csv (every host)"
+  },
+  "uav_tda_version": "0.1.0"
+}

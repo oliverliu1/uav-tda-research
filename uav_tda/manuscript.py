@@ -75,6 +75,59 @@ def bootstrap_mean_auc_ci(
     return float(ci_lo), float(ci_hi)
 
 
+def rank_auc(y, scores) -> float:
+    """AUC from ranks (`y` boolean); same value as `roc_auc_score`, much faster."""
+    from scipy.stats import rankdata
+
+    n1 = int(y.sum())
+    n0 = len(y) - n1
+    return float((rankdata(scores)[y].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
+
+
+def class_rank_z(labels: np.ndarray, scores: np.ndarray) -> np.ndarray:
+    """Standardized within-class ranks of ``scores`` (class means removed, so only
+    within-class variation is left for an autocorrelation to pick up)."""
+    from scipy.stats import rankdata
+
+    z = np.zeros(len(labels))
+    for c in np.unique(labels):
+        m = labels == c
+        ranks = rankdata(scores[m])
+        z[m] = (ranks - ranks.mean()) / (ranks.std() or 1.0)
+    return z
+
+
+def min_label_runs(labels: np.ndarray) -> int:
+    """Smallest number of contiguous label runs any class has."""
+    return min(int((np.diff(np.r_[0, (labels == c).astype(int)]) == 1).sum())
+               for c in np.unique(labels))
+
+
+def block_bootstrap_mean_auc_ci(y, run_scores, labels, block_len: int, B: int = 1000,
+                                bootstrap_seed: int = 0) -> "tuple[float, float]":
+    """Within-class circular block-bootstrap 95% CI of the across-run mean AUC.
+
+    Blocks are ``block_len`` consecutive members of one class, in row order
+    (neighbours within a class, not necessarily adjacent rows). Every run
+    scores the same rows, so one resample is shared by all of them.
+    ``block_len=1`` is the independent-rows interval.
+    """
+    labels = np.asarray(labels)
+    positions = [np.flatnonzero(labels == c) for c in np.unique(labels)]
+    rng = np.random.default_rng(bootstrap_seed)
+    reps = np.empty(B)
+    for b in range(B):
+        parts = []
+        for pos in positions:
+            starts = rng.integers(0, len(pos), -(-len(pos) // block_len))
+            offs = (starts[:, None] + np.arange(block_len)).ravel()[:len(pos)]
+            parts.append(pos[offs % len(pos)])
+        idx = np.concatenate(parts)
+        reps[b] = np.mean([rank_auc(y[idx], s[idx]) for s in run_scores])
+    lo, hi = np.percentile(reps, [2.5, 97.5])
+    return float(lo), float(hi)
+
+
 def bootstrap_shared_mean_auc_ci(
     y: np.ndarray,
     run_scores: list[np.ndarray],

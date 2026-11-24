@@ -54,6 +54,19 @@ Normal-vs-any-attack AUC, all 7 manifold subsets, n=18,326 test flows.
 | all_three | raw | 0.9037 | [0.8982, 0.9093] |
 | all_three | znorm | 0.9082 | [0.9033, 0.9131] |
 
+### 2.2 Flow dependence (all_three, znorm)
+
+The §2 intervals resample flows independently, but consecutive flows of the same class are correlated (pooled within-class rank lag-1 0.263), so those intervals are too narrow. Block columns are within-class circular block-bootstrap 95% CIs of the AUC in FlowID order (block 1 = independent flows); `autocorr` is the within-class rank correlation at that lag. The fewest contiguous runs any class has is 2, so blocks capture dependence within runs only (`results/tables/rebuild/exact/flow_dependence.csv`).
+
+| block (flows) | autocorr at that lag | AUC | 95% CI | width |
+| ---: | ---: | ---: | :--- | ---: |
+| 1 | 0.263 | 0.9082 | [0.9033, 0.9129] | 0.0096 |
+| 10 | 0.188 | 0.9082 | [0.9010, 0.9151] | 0.0141 |
+| 50 | 0.133 | 0.9082 | [0.8955, 0.9191] | 0.0236 |
+| 100 | 0.078 | 0.9082 | [0.8923, 0.9225] | 0.0301 |
+| 250 | 0.013 | 0.9082 | [0.8852, 0.9299] | 0.0446 |
+| 500 | -0.004 | 0.9082 | [0.8825, 0.9340] | 0.0515 |
+
 ## 3. Per-attack dominant-manifold attribution (raw scoring)
 
 One-vs-rest AUC per (attack, manifold), 95% bootstrap CI, dominant (highest-AUC) manifold marked.

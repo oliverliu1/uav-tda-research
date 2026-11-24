@@ -11,3 +11,10 @@
 \node[font=\small, anchor=south] at (axis cs:0.0266,0.928) {W=50};
 \node[font=\small, anchor=south] at (axis cs:0.116,0.969) {W=100};
 \node[font=\small, anchor=south] at (axis cs:0.604,0.966) {W=200};
+% block-10 bootstrap 95% CI (correlated windows; wider than the bars above)
+\addplot+[only marks, mark=none, error bars/.cd, y dir=both, y explicit] coordinates {
+    (0.00749, 0.869) += (0, 0.046) -= (0, 0.061)
+    (0.0266, 0.901) += (0, 0.055) -= (0, 0.063)
+    (0.116, 0.938) += (0, 0.047) -= (0, 0.064)
+    (0.604, 0.910) += (0, 0.056) -= (0, 0.078)
+};
