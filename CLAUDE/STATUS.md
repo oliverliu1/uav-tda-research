@@ -16,7 +16,7 @@ Human entry point: `README.md`.
   remains.
 - **Phase 8 (manuscript artifacts):** merged to `main` (PR #19, after the audit/cleanup PR #18;
   2026-11-10) (`uav-tda artifacts`): full-path frontier, unique window counts, operating points,
-  six figures, three new snippets, backfilled sidecars. Fast suite 200 passed / 0 skipped; ruff
+  six figures, three new snippets, backfilled sidecars. Fast suite 207 passed / 0 skipped; ruff
   clean; CI green (runner pinned to `ubuntu-24.04`). Report:
   `paper/MANUSCRIPT_ARTIFACTS.md`; figures: `results/figures/manuscript/`.
 
@@ -88,7 +88,9 @@ Stale worktrees and merged branches were pruned 2026-11-10; only `main` remains.
 
 - Results sign-off: done 2026-11-23, all six docs approved with no amendments. The reports' own
   "pending sign-off" sections are generator text and were not changed.
-- `main.tex` rewrite: unblocked, not started. This is the remaining work.
+- Manuscript rewrite: in progress in `CLAUDE/SciTech2027_Manuscript/` (plan 9, five phases).
+  Phase 0 done 2026-11-23: working copy builds (10 pages, text still the abstract's), cited numbers
+  come from `uav-tda manuscript-numbers`. Next: Phase 1, Methodology.
 
 ## Regenerating anything
 
