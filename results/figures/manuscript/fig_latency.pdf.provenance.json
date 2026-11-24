@@ -1,8 +1,8 @@
 {
   "artifact": "fig_latency.pdf",
   "artifact_sha256": "e56cc2bbd2ac571fe05f50de343f2353b427db87632fdd8ef39c09e67ca3853a",
-  "created_utc": "2026-11-24T03:18:45.547237+00:00",
-  "git_sha": "8aa13d9ea48f4f17bc19dee285264d59bc345f3b",
+  "created_utc": "2026-11-24T03:32:12.937898+00:00",
+  "git_sha": "4e8a6babfb3dc5b5003509da3563c72b4b8c0400",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",

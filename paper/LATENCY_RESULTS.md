@@ -64,7 +64,7 @@ Baseline source: **committed** (committed = the exact campaign's persisted barco
 
 Same sampled flows and Rips construction, scored like the full-test campaign behind the 0.9082 headline AUC (`paper/EXACT_RESULTS.md`): full diagrams (no top-K) and hera delta<=0.01. Rips is re-run, not reused. Baseline source: **committed**.
 
-_Timed in a separate session from the probe arm (2026-11-24 vs 2026-09-23); compare the two arms with that in mind._
+_Timed in a separate session from the probe arm (2026-11-24 vs 2026-09-23, UTC); compare the two arms with that in mind._
 
 | Stage | mean (s) | median (s) | p95 (s) | n |
 | :--- | ---: | ---: | ---: | ---: |

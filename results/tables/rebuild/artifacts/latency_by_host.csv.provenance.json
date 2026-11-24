@@ -1,8 +1,8 @@
 {
   "artifact": "latency_by_host.csv",
-  "artifact_sha256": "3759e98863d4edb11829cd607dd47aced101f6a49e78943d441a73665803eb3f",
-  "created_utc": "2026-11-24T03:18:43.902222+00:00",
-  "git_sha": "8aa13d9ea48f4f17bc19dee285264d59bc345f3b",
+  "artifact_sha256": "3496dd1e465ce119a98cffc8e1c16636091d2b11aee945c0830701f785181e6b",
+  "created_utc": "2026-11-24T03:32:11.318579+00:00",
+  "git_sha": "4e8a6babfb3dc5b5003509da3563c72b4b8c0400",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",

@@ -47,12 +47,13 @@ The frontier above uses the primary host. Ratios to it are not pure hardware com
 | host | decision | mean s | median s | p95 s | n | ratio to primary | speedup vs that host's per-flow probe |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Apple M1 Pro laptop | per-flow, probe | 3.5762 | 3.5855 | 3.8591 | 30 | 1.00 | 1.0× |
+| Apple M1 Pro laptop | per-flow, full diagrams | 5.7888 | 5.6030 | 7.1369 | 30 | 1.00 | 0.6× |
 | Apple M1 Pro laptop | W=25 | 0.0075 | 0.0076 | 0.0096 | 30 | 1.00 | 477.7× |
 | Apple M1 Pro laptop | W=50 | 0.0266 | 0.0246 | 0.0387 | 30 | 1.00 | 134.6× |
 | Apple M1 Pro laptop | W=100 | 0.1157 | 0.0937 | 0.2053 | 30 | 1.00 | 30.9× |
 | Apple M1 Pro laptop | W=200 | 0.6036 | 0.4568 | 1.3033 | 30 | 1.00 | 5.9× |
 | Raspberry Pi 5 (4 GB, active cooler, 27 W supply) | per-flow, probe | 8.3569 | 8.3166 | 8.7932 | 30 | 2.34 | 1.0× |
-| Raspberry Pi 5 (4 GB, active cooler, 27 W supply) | per-flow, full diagrams | 10.5456 | 10.5196 | 11.5621 | 30 | – | 0.8× |
+| Raspberry Pi 5 (4 GB, active cooler, 27 W supply) | per-flow, full diagrams | 10.5456 | 10.5196 | 11.5621 | 30 | 1.82 | 0.8× |
 | Raspberry Pi 5 (4 GB, active cooler, 27 W supply) | W=25 | 0.0073 | 0.0069 | 0.0093 | 30 | 0.97 | 1148.5× |
 | Raspberry Pi 5 (4 GB, active cooler, 27 W supply) | W=50 | 0.0284 | 0.0253 | 0.0473 | 30 | 1.07 | 293.9× |
 | Raspberry Pi 5 (4 GB, active cooler, 27 W supply) | W=100 | 0.1629 | 0.1042 | 0.4014 | 30 | 1.41 | 51.3× |
