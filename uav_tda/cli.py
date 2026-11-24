@@ -221,6 +221,14 @@ def _cmd_artifacts(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_manuscript_numbers(args: argparse.Namespace) -> int:
+    """Write `paper_snippets/manuscript_numbers.tex` (LaTeX macros) from committed CSVs."""
+    from . import manuscript_numbers
+
+    print(f"wrote {manuscript_numbers.write_numbers(_workspace_for(args).root)}")
+    return 0
+
+
 def _workspace_for(args: argparse.Namespace) -> Workspace:
     if getattr(args, "root", None):
         return Workspace.at(Path(args.root))
@@ -390,6 +398,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Select results/tables/rebuild/latency_<host>.csv when several "
                          "latency summaries exist (default: the single one present).")
     p.set_defaults(func=_cmd_artifacts)
+
+    p = sub.add_parser("manuscript-numbers",
+                       help="Write the manuscript's cited numbers as LaTeX macros "
+                            "(paper_snippets/manuscript_numbers.tex) from committed CSVs.")
+    p.add_argument("--root", type=str, default=None,
+                   help="Workspace root (default: repo root via Workspace.default()).")
+    p.set_defaults(func=_cmd_manuscript_numbers)
 
     p = sub.add_parser("prep", help="Phase 2: data prep and splits.")
     _add_common_args(p)
