@@ -136,3 +136,21 @@ def test_unchanged_numbers_leave_the_sidecar_alone_at_a_new_commit(tmp_path, mon
         "subset,scoring,auc,n_flows,w\nall_three,znorm,0.5,1,\n")
     mn.write_numbers(tmp_path)
     assert "{0.50}" in out.read_text() and json.loads(side.read_text())["git_sha"] == "b" * 40
+
+
+def test_json_sources_are_read_as_one_row(tmp_path):
+    rebuild = _rebuild(tmp_path)
+    (rebuild / "exact" / "caps.json").write_text('{"c2": 0.49384, "network": 0.1445}')
+    num = mn.Num("EpsConn", "exact/caps.json", {}, "c2", fmt=".3f")
+    assert mn.resolve(rebuild, num) == "0.494"
+    assert "exact/caps.json:  -> c2" in mn.render_numbers(rebuild, [num])
+
+
+def test_methodology_numbers_resolve_against_committed_files():
+    values = mn.build_numbers(REBUILD)
+    assert (values["EpsMaxConn"], values["EpsMaxNet"], values["EpsMaxPhys"]) == (
+        "0.494", "0.145", "0.333")
+    assert values["NValNormal"] == "3{,}926"
+    assert values["NTestNormal"] == "3{,}926" and values["NTestAttack"] == "14{,}400"
+    assert [values[f"NWin{t}"] for t in ("TwentyFive", "Fifty", "Hundred", "TwoHundred")] == [
+        "733", "366", "183", "91"]
