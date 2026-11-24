@@ -750,7 +750,7 @@ def _host_section(h: dict, idx: int) -> list:
         created = str(meta.get("created_utc", ""))
         if created[:10] and created[:10] != str(h["created_utc"])[:10]:
             L += [f"_Timed in a separate session from the probe arm ({created[:10]} vs "
-                  f"{str(h['created_utc'])[:10]}); compare the two arms with that in mind._", ""]
+                  f"{str(h['created_utc'])[:10]}, UTC); compare the two arms with that in mind._", ""]
         L += _stat_table(h["exact"], _PER_FLOW_COLS)
 
     L += [f"### {idx}.3 Windowed arm", "",

@@ -34,7 +34,7 @@ immutable as-submitted record and are never overwritten by reruns.
 
 Full pipeline phases (`prep`, `tda`, `features`, `supervised`, `unsupervised`,
 `evaluate`, or `all` in order) and analysis commands (`windowed`,
-`windowed-report`, `exact`, `exact-report`, `latency`, `hang-check`, `znorm-report`,
+`windowed-report`, `exact`, `exact-report`, `latency`, `latency-report`, `hang-check`, `znorm-report`,
 `manuscript-report`) are documented in `CLAUDE.md`. Run
 `uav-tda <command> --help` for any subcommand's flags.
 
@@ -63,7 +63,7 @@ from committed `results/tables/rebuild/*.csv`. **All pending author sign-off**
 - `paper/EXACT_RESULTS.md` — full-test-split, high-precision (δ≤0.01)
   Wasserstein-2 campaign (Phase 6 Track A).
 - `paper/LATENCY_RESULTS.md` — portable onboard-latency harness, per-flow and
-  windowed arms (Phase 6 Track B).
+  windowed arms, on the Mac and a Raspberry Pi 5 (Phase 6 Track B).
 - `paper/WINDOWED_RESULTS.md` — time-windowed multi-manifold persistence
   variant, detection/attribution/contamination/frontier tables (Phase 5).
 - `paper/MANUSCRIPT_STATS.md` — ten-seed bootstrap-CI evaluation of the probe

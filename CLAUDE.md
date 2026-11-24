@@ -26,17 +26,19 @@ No new runtime dependencies (e.g. POT) without an explicit decision.
 ## Commands
 
 ```bash
-make test        # fast suite (pytest -m "not slow"), ~2 min, 192 tests — run before claiming anything works
+make test        # fast suite (pytest -m "not slow"), ~2 min, 200 tests — run before claiming anything works
 make test-all    # includes slow monolith-equivalence tests (needs .cache/monolith-debug/)
 make lint        # ruff, safety tier
-uav-tda --help   # 17 subcommands; README "Quickstart" + "Results docs" list which command regenerates which paper/*.md
+uav-tda --help   # 18 subcommands; README "Quickstart" + "Results docs" list which command regenerates which paper/*.md
 uav-tda latency --fresh-baselines --exact-arm   # on any machine other than this Mac ALWAYS pass --fresh-baselines
+uav-tda latency --exact-only   # add just the 0.9082 arm to a host that already has a summary
+uav-tda latency-report   # re-render LATENCY_RESULTS.md for every host from committed CSVs, no timing
 uav-tda hang-check   # counts hera non-terminations, committed vs machine-built baselines
 uav-tda artifacts [--root PATH]   # Phase 8: figures/tables/snippets + paper/MANUSCRIPT_ARTIFACTS.md from committed CSVs, no recompute
 ```
 
 Every subcommand supports `--debug` (fast stratified smoke) except `probe`, `znorm-report`,
-`manuscript-report`, `artifacts`. `outputs/` (32 GB, gitignored) already holds the prep CSVs and per-flow
+`manuscript-report`, `artifacts`, `hang-check`, `latency-report`. `outputs/` (32 GB, gitignored) already holds the prep CSVs and per-flow
 persistence diagrams; `uav-tda tda` never needs re-running for probe/exact/windowed/latency.
 
 ## File discipline
@@ -72,6 +74,12 @@ Golden-master `metrics.py` functions and the probe default path must not change 
 - **hera can loop forever on near-identical diagrams** (differences from one rounding unit up to
   ~1e-9; exactly equal ones return 0). Never compare diagrams built on one machine with baselines
   built on another; a hang inside hera cannot be interrupted from Python (`latency.Watchdog`).
+- **Intervals:** per-flow and windowed CIs that treat rows as independent are too narrow (flows and
+  windows are correlated). Quote the block-bootstrap interval with them: per-flow
+  `exact/flow_dependence.csv`, windowed `windowed/window_dependence.csv`. Block versions exist for
+  the all-three z-norm detection AUC only.
+- **Latency hosts:** the 0.9082 AUC pairs with the full-diagram arm, 0.8930 with the probe arm. Hosts
+  and their roles are in `config.LATENCY_HOSTS`; `config.LATENCY_PRIMARY_HOST` feeds the frontier.
 - "Exact" Wasserstein means hera **δ≤0.01**; literal δ=0 is intractable (13/13 sampled flows
   timed out, ~30-day projection). The dataset has **no timestamps**; FlowID order is the
   temporal proxy (disclosed).
