@@ -127,7 +127,11 @@ def write_numbers(root=None) -> Path:
     rebuild = root / "results" / "tables" / "rebuild"
     path = rebuild / "paper_snippets" / NUMBERS_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_numbers(rebuild, NUMBERS))
+    text = render_numbers(rebuild, NUMBERS)
+    side = path.with_name(path.name + ".provenance.json")
+    if path.exists() and side.exists() and path.read_text() == text:
+        return path  # nothing changed: keep the sidecar of the commit that last changed it
+    path.write_text(text)
     write_provenance(path, {"builder": "manuscript_numbers.render_numbers",
                             "n_numbers": len(NUMBERS),
                             "sources": sorted({n.csv for n in NUMBERS})},

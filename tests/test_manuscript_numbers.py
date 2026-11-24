@@ -115,3 +115,24 @@ def test_cli_writes_file_and_sidecar_and_is_idempotent(tmp_path, monkeypatch):
     before = (out.read_bytes(), side.read_bytes())
     assert cli.main(["manuscript-numbers", "--root", str(tmp_path)]) == 0
     assert (out.read_bytes(), side.read_bytes()) == before
+
+
+def test_unchanged_numbers_leave_the_sidecar_alone_at_a_new_commit(tmp_path, monkeypatch):
+    """Rebuilding the manuscript must not dirty the repo when no number changed."""
+    from uav_tda import provenance
+
+    rebuild = _rebuild(tmp_path)
+    monkeypatch.setattr(mn, "NUMBERS", [
+        mn.Num("AucAll", "exact/t.csv", {"subset": "all_three", "scoring": "znorm"}, "auc")])
+    monkeypatch.setattr(provenance, "_git_sha", lambda: "a" * 40)
+    out = mn.write_numbers(tmp_path)
+    side = out.with_name(out.name + ".provenance.json")
+    before = side.read_bytes()
+    monkeypatch.setattr(provenance, "_git_sha", lambda: "b" * 40)
+    mn.write_numbers(tmp_path)
+    assert side.read_bytes() == before
+    # A changed number does update both files.
+    (rebuild / "exact" / "t.csv").write_text(
+        "subset,scoring,auc,n_flows,w\nall_three,znorm,0.5,1,\n")
+    mn.write_numbers(tmp_path)
+    assert "{0.50}" in out.read_text() and json.loads(side.read_text())["git_sha"] == "b" * 40
