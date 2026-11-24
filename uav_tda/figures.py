@@ -163,7 +163,8 @@ def fig_frontier(frontier: pd.DataFrame, exact_ref_auc: float, out_path,
                     color=ARM_COLORS["per_flow"], capsize=2, elinewidth=0.8, ms=5,
                     label=pf_label, zorder=3)
         for _, r in win.iterrows():
-            ax.annotate(_w_label(r["w"]), (r["cost_s"], r["auc_ci_hi"]),
+            top = np.nanmax([r["auc_ci_hi"], r.get("auc_block10_hi", np.nan)])
+            ax.annotate(_w_label(r["w"]), (r["cost_s"], top),
                         xytext=(0, 2), textcoords="offset points", ha="center", va="bottom",
                         fontsize=BASE_FONT_PT - 1)
         ax.set_xscale("log")
@@ -227,7 +228,7 @@ def fig_detection_vs_w(detection: pd.DataFrame, per_flow_auc: float, exact_ref_a
         ax.set_xlabel("Window size W (flows)")
         ax.set_ylabel("AUC (z-norm, all three)")
         ax.set_ylim(0.4, 1.0)
-        ax.legend(loc="center right", bbox_to_anchor=(1.0, 0.575))
+        ax.legend(loc="center left", bbox_to_anchor=(0.0, 0.49), labelspacing=0.25)
     return _save(fig, out_path, {
         "figure": "detection_vs_w", "source": source,
         "per_flow_source": "windowed/compute_frontier.csv (per_flow auc_mean)",
