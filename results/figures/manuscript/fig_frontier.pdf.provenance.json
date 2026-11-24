@@ -1,8 +1,8 @@
 {
   "artifact": "fig_frontier.pdf",
-  "artifact_sha256": "8aa1f39b5c2db369c6533663929c1bd1c6acbed33b9e04fabc1c635cda02846b",
-  "created_utc": "2026-11-23T21:23:21.790898+00:00",
-  "git_sha": "b08837ba5f06212e2da6751eb7cc7289dae65690",
+  "artifact_sha256": "6394d2bc164828409bca0e7727fb24c0fd74587935ef7e3f4090cb6658ae0c87",
+  "created_utc": "2026-11-24T03:21:32.600525+00:00",
+  "git_sha": "8aa13d9ea48f4f17bc19dee285264d59bc345f3b",
   "library_versions": {
     "gudhi": "3.11.0",
     "numpy": "1.20.3",
