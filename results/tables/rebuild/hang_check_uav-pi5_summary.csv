@@ -1,0 +1,5 @@
+baseline,config,n_comparisons,n_equal,n_near,n_timeout,n_error,n_flows,n_flows_timeout,max_ok_s
+committed,exact,240,28,17,17,0,30,17,3.345825284000057
+committed,probe,240,28,45,45,0,30,29,0.036534840000058466
+fresh,exact,240,18,0,0,0,30,0,4.577615592000257
+fresh,probe,240,56,1,0,0,30,0,0.03407602900006168
