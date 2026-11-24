@@ -324,56 +324,124 @@ def test_build_summary_table_has_mean_median_p95_per_stage():
 # ---------------------------------------------------------------------------
 
 
-def test_write_latency_report_smoke(tmp_path):
-    """Synthetic frames -> renders `paper/LATENCY_RESULTS.md`, no real Rips/hera
-    calls, tmp workspace only. Confirms the machine header and the paper-claim
-    check land in the rendered text, and that an optional `render_note` (used
-    for a text-only re-render disclosure) is included when given.
-    """
+_STAGES = ["scaler_s", "rips_s", "slice_s", "w2_s", "total_s"]
+
+
+def _write_host(ws, host, scale=1.0, machine="x86_64", hw="arm64", rosetta=True,
+                brand="Apple M1 Pro", exact=False, baseline_source=None, extra=None):
+    """Synthetic committed CSVs + sidecars for one host, the way `run_latency` writes them."""
+    from uav_tda.provenance import write_provenance
+
+    rebuild = ws.tables_dir / "rebuild"
+    rebuild.mkdir(parents=True, exist_ok=True)
+    data = {"row_idx": [0, 1, 2]}
+    for m in config.MANIFOLDS:
+        for stage in _STAGES:
+            data[f"{m}_{stage}"] = [0.01 * scale, 0.02 * scale, 0.03 * scale]
+    data["total_s"] = [1.0 * scale, 2.0 * scale, 3.0 * scale]
+    pf = pd.DataFrame(data)
+    wins = {}
+    for w in (25, 50):
+        wd = {"window_idx": [0, 1, 2], "start_pos": [0, 1, 2], "baseline_setup_s": [1.5] * 3}
+        for m in config.MANIFOLDS:
+            for st in ("rips_s", "w2_s", "total_s"):
+                wd[f"{m}_{st}"] = [0.001 * scale] * 3
+        wd["total_s"] = [0.009 * scale] * 3
+        wins[w] = pd.DataFrame(wd)
+        wins[w].to_csv(rebuild / f"latency_{host}_w{w}.csv", index=False)
+    info = {"platform": "X", "machine": machine, "hardware_arch": hw,
+            "rosetta_translated": rosetta, "cpu_brand": brand, "physical_cores": 4,
+            "logical_cores": 4, "python_version": "3.9", "gudhi_version": "3.11.0",
+            "hostname": host, "timestamp_utc": "2026-01-01T00:00:00+00:00"}
+    params = {"n": 3, "hostname": host, "machine_info": info, **(extra or {})}
+    if baseline_source:
+        params["baseline_source"] = baseline_source
+    summary = latency._build_summary_table(pf, wins)
+    path = rebuild / f"latency_{host}.csv"
+    summary.to_csv(path, index=False)
+    write_provenance(path, params)
+    if exact:
+        ex = pf.copy()
+        ex["total_s"] = ex["total_s"] * 1.5
+        epath = rebuild / f"latency_{host}_per_flow_exact.csv"
+        ex.to_csv(epath, index=False)
+        write_provenance(epath, {"mode": "per_flow_exact", "n": 3,
+                                 "baseline_source": "committed", "top_k": None, "delta": 0.01})
+    return summary
+
+
+def test_write_latency_report_single_workstation(tmp_path):
     ws = Workspace.at(tmp_path)
     ws.ensure()
-    info = {
-        "platform": "Darwin", "machine": "x86_64", "hardware_arch": "arm64",
-        "rosetta_translated": True, "cpu_brand": "Apple M1 Pro", "physical_cores": 8,
-        "logical_cores": 8, "python_version": "3.9.7", "gudhi_version": "3.11.0",
-        "hostname": "test-host", "timestamp_utc": "2026-01-01T00:00:00+00:00",
-    }
-    n = 3
-    stage_order = ["scaler_s", "rips_s", "slice_s", "w2_s", "total_s"]
-    per_flow_data: dict = {"row_idx": list(range(n))}
-    for m in config.MANIFOLDS:
-        for stage in stage_order:
-            per_flow_data[f"{m}_{stage}"] = [0.01, 0.02, 0.03]
-    per_flow_data["total_s"] = [0.03, 0.06, 0.09]
-    per_flow_df = pd.DataFrame(per_flow_data)
-
-    windowed_frames: dict = {}
-    for w in (25, 50):
-        w_data: dict = {
-            "window_idx": list(range(n)), "start_pos": list(range(n)),
-            "baseline_setup_s": [1.5] * n,
-        }
-        for m in config.MANIFOLDS:
-            w_data[f"{m}_rips_s"] = [0.001] * n
-            w_data[f"{m}_w2_s"] = [0.002] * n
-            w_data[f"{m}_total_s"] = [0.003] * n
-        w_data["total_s"] = [0.009] * n
-        windowed_frames[w] = pd.DataFrame(w_data)
-
-    summary_df = latency._build_summary_table(per_flow_df, windowed_frames)
-
-    report_path = latency._write_latency_report(
-        ws, info, per_flow_df, windowed_frames, summary_df, n,
-        render_note="_Re-rendered for a smoke test; not a real measurement._",
-    )
-
-    assert report_path == ws.root / "paper" / "LATENCY_RESULTS.md"
-    text = report_path.read_text()
-    assert "## 1. Machine header" in text
-    assert "Apple M1 Pro" in text
-    assert "## 4. Paper's \"1-3 s per flow\" claim vs measured" in text
+    _write_host(ws, "test-host", extra={"rerender_reason": "synthetic re-render note"})
+    path = latency.write_latency_report(ws)
+    assert path == ws.root / "paper" / "LATENCY_RESULTS.md"
+    text = path.read_text()
+    assert "Apple M1 Pro" in text and "Rosetta" in text
     assert "claimed 1-3s band" in text
-    assert "_Re-rendered for a smoke test; not a real measurement._" in text
+    assert "synthetic re-render note" in text
+    assert "0.9082 configuration" not in text
+
+
+def test_report_covers_both_hosts_with_role_specific_wording(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "LATENCY_PRIMARY_HOST", "mac-host")
+    monkeypatch.setattr(config, "LATENCY_HOSTS", {
+        "mac-host": {"role": "workstation", "label": "Mac"},
+        "pi-host": {"role": "companion", "label": "Raspberry Pi 5"}})
+    ws = Workspace.at(tmp_path)
+    ws.ensure()
+    _write_host(ws, "pi-host", scale=2.0, machine="aarch64", hw="arm64", rosetta=False,
+                brand="unknown", exact=True, baseline_source="fresh")
+    _write_host(ws, "mac-host", exact=True)
+    text = latency.write_latency_report(ws).read_text()
+    # primary host first, then the companion
+    assert text.index("Host: Mac") < text.index("Host: Raspberry Pi 5")
+    pi = text[text.index("Host: Raspberry Pi 5"):text.index("## Companion-hardware")]
+    assert "workstation" not in pi and "LOWER BOUND" not in pi
+    assert "companion-class" in pi
+    mac = text[text.index("Host: Mac"):text.index("Host: Raspberry Pi 5")]
+    assert "LOWER BOUND" in mac
+    # cross-host ratio 2.0 on per-flow, exact arm on both hosts
+    assert "2.00" in text
+    assert text.count("0.9082 configuration") >= 2
+    assert "Baseline source: **fresh**" in pi
+
+
+def test_load_latency_hosts_takes_the_exact_arm_from_its_detail_file(tmp_path):
+    ws = Workspace.at(tmp_path)
+    ws.ensure()
+    _write_host(ws, "h", exact=True)
+    (host,) = latency.load_latency_hosts(ws)
+    ex = host["exact"]
+    assert float(ex.loc[ex["stage"] == "total_s", "mean_s"].iloc[0]) == pytest.approx(3.0)
+    assert host["exact_meta"]["baseline_source"] == "committed"
+
+
+def test_exact_only_writes_just_the_exact_arm(tmp_path, monkeypatch):
+    ws = _make_per_flow_workspace(tmp_path)
+    calls = _stub_arms(monkeypatch)
+    host = latency.machine_info()["hostname"]
+    _write_host(ws, host)
+    rebuild = ws.tables_dir / "rebuild"
+    before = {p.name: p.read_bytes() for p in rebuild.glob("latency_*")}
+    report = latency.run_latency(ws, n=2, exact_only=True, watchdog_s=0)
+    assert len(calls) == 1 and calls[0]["top_k"] is None
+    after = {p.name: p.read_bytes() for p in rebuild.glob("latency_*")}
+    for name, data in before.items():
+        assert after[name] == data, name
+    assert set(after) - set(before) == {
+        f"latency_{host}_per_flow_exact.csv",
+        f"latency_{host}_per_flow_exact.csv.provenance.json"}
+    side = json.loads((rebuild / f"latency_{host}_per_flow_exact.csv.provenance.json").read_text())
+    assert side["params"]["machine_info"]["hostname"] == host
+    assert "0.9082 configuration" in report.read_text()
+
+
+def test_exact_only_refuses_without_an_existing_summary(tmp_path, monkeypatch):
+    ws = _make_per_flow_workspace(tmp_path)
+    _stub_arms(monkeypatch)
+    with pytest.raises(FileNotFoundError, match="summary"):
+        latency.run_latency(ws, n=2, exact_only=True, watchdog_s=0)
 
 
 # ---------------------------------------------------------------------------
@@ -591,6 +659,8 @@ def test_cli_latency_passes_new_flags(monkeypatch, tmp_path):
     args = parser.parse_args(["latency", "--root", str(tmp_path), "--n", "4",
                               "--fresh-baselines", "--exact-arm", "--watchdog", "60"])
     assert args.func(args) == 0
-    assert got == {"n": 4, "fresh_baselines": True, "exact_arm": True, "watchdog_s": 60.0}
+    assert got == {"n": 4, "fresh_baselines": True, "exact_arm": True, "watchdog_s": 60.0,
+                   "exact_only": False}
     d = parser.parse_args(["latency"])
-    assert (d.fresh_baselines, d.exact_arm, d.watchdog) == (False, False, 900.0)
+    assert (d.fresh_baselines, d.exact_arm, d.watchdog, d.exact_only) == (False, False, 900.0, False)
+    assert parser.parse_args(["latency-report"]).func is cli._cmd_latency_report

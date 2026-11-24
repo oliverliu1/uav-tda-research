@@ -47,6 +47,7 @@ def test_full_path_frontier_synthetic_exact_values(tmp_path):
         "row", "w", "auc_mean", "auc_ci_lo", "auc_ci_hi", "cost_s", "cost_p95_s",
         "campaign_marginal_s", "w2_only_per_flow_s", "baseline_setup_s",
         "flows_per_decision", "cost_per_flow_s", "speedup_vs_per_flow", "cost_n",
+        "auc_block10_lo", "auc_block10_hi",
     ]
     assert list(df["row"]) == ["per_flow", "25"]
     pf, w25 = df.iloc[0], df.iloc[1]
@@ -450,3 +451,43 @@ def test_near_normal_cutoff_matches_committed_contamination_threshold():
     assert len(committed) == 1
     assert threshold(artifacts.NEAR_NORMAL_ATTACK_FRAC) == pytest.approx(committed[0], abs=1e-9)
     assert threshold(0.0) != pytest.approx(committed[0], abs=1e-9)
+
+
+def test_find_latency_summary_prefers_the_primary_host(tmp_path, monkeypatch):
+    from uav_tda import config
+    rebuild = _synthetic_rebuild(tmp_path)
+    (rebuild / "latency_otherhost.csv").write_text(_LATENCY_SUMMARY_CSV)
+    monkeypatch.setattr(config, "LATENCY_PRIMARY_HOST", "otherhost")
+    assert artifacts.find_latency_summary(rebuild).name == "latency_otherhost.csv"
+
+
+def test_frontier_carries_block10_interval_for_windowed_rows_only(tmp_path):
+    rebuild = _synthetic_rebuild(tmp_path)
+    (rebuild / "windowed" / "window_dependence.csv").write_text(
+        "w,block_len,lag1_autocorr,n_runs_min,ci_lo,ci_hi\n"
+        "25,1,0.5,2,0.85,0.89\n25,10,0.5,2,0.80,0.92\n")
+    df = artifacts.build_full_path_frontier(rebuild)
+    assert math.isnan(df.iloc[0]["auc_block10_lo"])
+    assert (df.iloc[1]["auc_block10_lo"], df.iloc[1]["auc_block10_hi"]) == (0.80, 0.92)
+    text = artifacts.emit_full_path_frontier_pgfplots(df)
+    assert "block-10" in text and text.count(r"\addplot") == 2
+
+
+def test_latency_by_host_ratios_and_exact_arm(tmp_path, monkeypatch):
+    from uav_tda import config
+    monkeypatch.setattr(config, "LATENCY_PRIMARY_HOST", "somehost")
+    rebuild = _synthetic_rebuild(tmp_path)
+    (rebuild / "latency_otherhost.csv").write_text(
+        _LATENCY_SUMMARY_CSV.replace(",total_s,4.0,", ",total_s,8.0,"))
+    (rebuild / "latency_otherhost_per_flow_exact.csv").write_text(
+        "row_idx,total_s\n0,10.0\n1,12.0\n")
+    df = artifacts.latency_by_host(rebuild)
+    assert list(df["host"].unique()) == ["somehost", "otherhost"]
+    pf = df[df["mode"] == "per_flow"].set_index("host")
+    assert pf.loc["somehost", "ratio_to_primary"] == 1.0
+    assert pf.loc["otherhost", "ratio_to_primary"] == pytest.approx(2.0)
+    ex = df[df["mode"] == "per_flow_exact"]
+    assert list(ex["host"]) == ["otherhost"] and ex.iloc[0]["mean_s"] == pytest.approx(11.0)
+    w = df[(df["mode"] == "windowed") & (df["host"] == "otherhost")].iloc[0]
+    assert w["speedup_vs_per_flow"] == pytest.approx(8.0 / 0.008)
+    assert math.isnan(ex.iloc[0]["ratio_to_primary"])

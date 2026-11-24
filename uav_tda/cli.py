@@ -154,9 +154,15 @@ def _cmd_exact_report(args: argparse.Namespace) -> int:
     test_df = exact.assemble_distances(exact_dir, "test")
     tables["_n_timeouts_total"] = int(test_df["n_timeouts"].sum())
 
-    insens_df = exact.insensitivity_check(ws, exact_dir, n=500, rng_seed=0)
-    insens_path = exact.write_insensitivity_check(ws, insens_df)
-    print(f"wrote {insens_path}")
+    if args.reuse_insensitivity:
+        import pandas as pd
+
+        insens_df = pd.read_csv(exact_dir / "insensitivity_check.csv",
+                                float_precision="round_trip")
+    else:
+        insens_df = exact.insensitivity_check(ws, exact_dir, n=500, rng_seed=0)
+        insens_path = exact.write_insensitivity_check(ws, insens_df)
+        print(f"wrote {insens_path}")
     tables["insensitivity_check"] = insens_df
 
     report_path = exact.write_exact_report(ws, tables)
@@ -174,9 +180,17 @@ def _cmd_latency(args: argparse.Namespace) -> int:
     ws.ensure()
     report_path = latency.run_latency(
         ws, n=args.n, fresh_baselines=args.fresh_baselines, exact_arm=args.exact_arm,
-        watchdog_s=args.watchdog,
+        watchdog_s=args.watchdog, exact_only=args.exact_only,
     )
     print(f"wrote {report_path}")
+    return 0
+
+
+def _cmd_latency_report(args: argparse.Namespace) -> int:
+    """Re-render `paper/LATENCY_RESULTS.md` (every host) from committed CSVs; no timing."""
+    from . import latency
+
+    print(f"wrote {latency.write_latency_report(_workspace_for(args))}")
     return 0
 
 
@@ -334,6 +348,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Phase 6: assemble the exact-W2 campaign into definitive tables.")
     _add_common_args(p)
     p.add_argument("--bootstrap", type=int, default=2000)
+    p.add_argument("--reuse-insensitivity", action="store_true",
+                    help="Use the committed insensitivity_check.csv instead of re-running it.")
     p.set_defaults(func=_cmd_exact_report)
 
     p = sub.add_parser("latency",
@@ -345,9 +361,18 @@ def build_parser() -> argparse.ArgumentParser:
                         "other than the one that ran the exact campaign).")
     p.add_argument("--exact-arm", action="store_true",
                    help="Also time the 0.9082 configuration (full diagrams, delta<=0.01).")
+    p.add_argument("--exact-only", action="store_true",
+                   help="Add just the 0.9082 arm to a host that already has a summary; "
+                        "other files are left untouched.")
     p.add_argument("--watchdog", type=float, default=900.0,
                    help="Kill the run if one step exceeds this many seconds (0 = off).")
     p.set_defaults(func=_cmd_latency)
+
+    p = sub.add_parser("latency-report",
+                       help="Re-render LATENCY_RESULTS.md for every measured host (no timing).")
+    p.add_argument("--root", type=str, default=None,
+                   help="Workspace root (default: repo root via Workspace.default()).")
+    p.set_defaults(func=_cmd_latency_report)
 
     p = sub.add_parser("hang-check",
                        help="Count hera non-terminations, committed vs machine-built baselines.")
