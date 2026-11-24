@@ -16,7 +16,7 @@ Human entry point: `README.md`.
   remains.
 - **Phase 8 (manuscript artifacts):** merged to `main` (PR #19, after the audit/cleanup PR #18;
   2026-11-10) (`uav-tda artifacts`): full-path frontier, unique window counts, operating points,
-  six figures, three new snippets, backfilled sidecars. Fast suite 214 passed / 0 skipped; ruff
+  six figures, three new snippets, backfilled sidecars. Fast suite 215 passed / 0 skipped; ruff
   clean; CI green (runner pinned to `ubuntu-24.04`). Report:
   `paper/MANUSCRIPT_ARTIFACTS.md`; figures: `results/figures/manuscript/`.
 
