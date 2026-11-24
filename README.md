@@ -34,7 +34,7 @@ immutable as-submitted record and are never overwritten by reruns.
 
 Full pipeline phases (`prep`, `tda`, `features`, `supervised`, `unsupervised`,
 `evaluate`, or `all` in order) and analysis commands (`windowed`,
-`windowed-report`, `exact`, `exact-report`, `latency`, `latency-report`, `hang-check`, `manuscript-numbers`, `znorm-report`,
+`windowed-report`, `exact`, `exact-report`, `latency`, `latency-report`, `hang-check`, `manuscript-numbers`, `manuscript-bundle`, `znorm-report`,
 `manuscript-report`) are documented in `CLAUDE.md`. Run
 `uav-tda <command> --help` for any subcommand's flags.
 

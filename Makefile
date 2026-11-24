@@ -1,4 +1,4 @@
-.PHONY: help test test-all lint repro-fast manuscript
+.PHONY: help test test-all lint repro-fast manuscript bundle
 
 help:
 	@echo "Available targets:"
@@ -7,6 +7,7 @@ help:
 	@echo "  make lint        - run ruff check ."
 	@echo "  make repro-fast  - run the seed-42 probe reproduction (uav-tda probe --seed 42)"
 	@echo "  make manuscript  - regenerate the cited numbers and build the manuscript PDF"
+	@echo "  make bundle      - regenerate the numbers and write the self-contained Overleaf zip"
 
 test:
 	python3 -m pytest -m "not slow" -q
@@ -23,3 +24,7 @@ repro-fast:
 manuscript:
 	uav-tda manuscript-numbers
 	cd CLAUDE/SciTech2027_Manuscript && latexmk -pdf -interaction=nonstopmode -halt-on-error -outdir=build main.tex
+
+bundle:
+	uav-tda manuscript-numbers
+	uav-tda manuscript-bundle

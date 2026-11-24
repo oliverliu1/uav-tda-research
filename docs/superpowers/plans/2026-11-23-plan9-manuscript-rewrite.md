@@ -129,28 +129,38 @@ to a later manuscript.
    and ends with `\node` lines, so it cannot simply be `\input` after `\addplot`; either split it
    or draw the subset bars as a generated PDF.
 2. **Build.** Done: `make manuscript`. `compat` lowered to 1.17, which also builds on newer TeX
-   Live. The copy builds to 10 pages with zero undefined references. A self-contained upload
-   bundle (flattened inputs) is a Phase 4 item.
+   Live. The copy builds to 10 pages with zero undefined references. `make bundle` writes a
+   self-contained Overleaf copy (`build/overleaf.zip`); it builds on its own to the same PDF.
 3. **Brief housekeeping.** `PROJECT_BRIEF.md` §3 still says companion-class numbers do not exist
    and cites 3.6 s only; update the body when the latency section is written.
 
 ## 3. Order of work and checkpoints
 
-| Phase | Content | Author checkpoint |
-|---|---|---|
-| 0 | Manuscript location, numbers file, build check | Approve the mechanism |
-| 1 | §III Methodology and pipeline figure | Review the methods text |
-| 2 | §IV Results with figures and tables | Review results and the Sybil wording |
-| 3 | §V–§VII, abstract, introduction | Review framing with co-authors |
-| 4 | Bibliography, appendix, final number audit against the CSVs | Final read |
+**Deadline: 2026-12-01, 8:00 PM Eastern.** Target dates below assume one phase per working
+session and prompt author review; they are targets, not commitments. Thanksgiving is 11-26, so
+co-authors may be slow to respond from 11-26 to 11-29.
 
-Each phase is one branch and pull request.
+| Phase | Content | Target | Author checkpoint |
+|---|---|---|---|
+| 0 | Manuscript location, numbers file, build, Overleaf bundle | 11-23 (done) | Approve the mechanism |
+| 1 | §III Methodology and pipeline figure | 11-24 | Review the methods text |
+| 2 | §IV Results with figures and tables | 11-25 | Review results and the Sybil wording |
+| 3 | §V–§VII, abstract, introduction | 11-27 | Full draft to co-authors |
+| 4 | Bibliography, appendix, final number audit against the CSVs | 11-28 | Final read |
+| Review | Co-author comments and revisions | 11-29 to 11-30 | Sign-off to submit |
+| Submit | Final bundle build and upload | 12-01, by midday | |
+
+Each phase is one branch and pull request. After each phase, `make bundle` gives an Overleaf
+copy of the current draft.
+
+Questions to put to co-authors early, because they do not depend on the draft: the Sybil
+hypothesis wording (§V), and the three background claims the audit flagged (§I).
 
 ## 4. Decisions (made 2026-11-23)
 
 1. **Where the manuscript lives:** `CLAUDE/SciTech2027_Manuscript/`; the submitted abstract
    directory stays untouched.
 2. **How numbers enter the text:** generated macros and snippets.
-3. **Venue constraints:** AIAA format, the template already in use, no page limit. The exact
-   December deadline is still not recorded.
+3. **Venue constraints:** AIAA format, the template already in use, no page limit. Deadline
+   2026-12-01, 8:00 PM Eastern. The author builds on Overleaf (TeXstudio also acceptable).
 4. **Discussion** is its own short section.
