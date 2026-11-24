@@ -14,9 +14,9 @@
 
 % Every number cited in running text is a macro generated from the committed CSVs
 % (`uav-tda manuscript-numbers`); figures are the generated PDFs. Nothing is typed by hand.
-\newcommand{\rebuild}{../../results/tables/rebuild}
+% paths.tex says where those generated files are (the repo here; the bundle on Overleaf).
+\input{paths}
 \input{\rebuild/paper_snippets/manuscript_numbers.tex}
-\graphicspath{{../../results/figures/manuscript/}}
 \setlength\LTleft{0pt} 
 
 \usetikzlibrary{shapes.geometric, arrows.meta, positioning, calc}

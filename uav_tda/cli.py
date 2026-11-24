@@ -229,6 +229,14 @@ def _cmd_manuscript_numbers(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_manuscript_bundle(args: argparse.Namespace) -> int:
+    """Write a self-contained copy of the manuscript (folder + zip) for Overleaf."""
+    from . import manuscript_bundle
+
+    print(f"wrote {manuscript_bundle.build_bundle(_workspace_for(args).root)}")
+    return 0
+
+
 def _workspace_for(args: argparse.Namespace) -> Workspace:
     if getattr(args, "root", None):
         return Workspace.at(Path(args.root))
@@ -405,6 +413,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", type=str, default=None,
                    help="Workspace root (default: repo root via Workspace.default()).")
     p.set_defaults(func=_cmd_manuscript_numbers)
+
+    p = sub.add_parser("manuscript-bundle",
+                       help="Write a self-contained copy of the manuscript (folder + zip) "
+                            "for Overleaf.")
+    p.add_argument("--root", type=str, default=None,
+                   help="Workspace root (default: repo root via Workspace.default()).")
+    p.set_defaults(func=_cmd_manuscript_bundle)
 
     p = sub.add_parser("prep", help="Phase 2: data prep and splits.")
     _add_common_args(p)
