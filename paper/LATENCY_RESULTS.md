@@ -9,7 +9,7 @@ Ratios are each host's mean divided by the first host's. They are not pure hardw
 | Decision | Apple M1 Pro laptop | Raspberry Pi 5 (4 GB, active cooler, 27 W supply) | Raspberry Pi 5 (4 GB, active cooler, 27 W supply) / Apple M1 Pro laptop |
 | :--- | ---: | ---: | ---: |
 | Per-flow, probe (0.8930) | 3.5762 / 3.8591 | 8.3569 / 8.7932 | 2.34 |
-| Per-flow, full diagrams (0.9082) | not measured | 10.5456 / 11.5621 | – |
+| Per-flow, full diagrams (0.9082) | 5.7888 / 7.1369 | 10.5456 / 11.5621 | 1.82 |
 | Windowed W=25 | 0.0075 / 0.0096 | 0.0073 / 0.0093 | 0.97 |
 | Windowed W=50 | 0.0266 / 0.0387 | 0.0284 / 0.0473 | 1.07 |
 | Windowed W=100 | 0.1157 / 0.2053 | 0.1629 / 0.4014 | 1.41 |
@@ -59,6 +59,31 @@ n=30 sampled test flows, `SPARSE_RIPS_EPSILON={'c2': 0.5, 'network': 0.5, 'physi
 | total_s | 3.5762 | 3.5855 | 3.8591 | 30 |
 
 Baseline source: **committed** (committed = the exact campaign's persisted barcodes; fresh = built on this machine before timing).
+
+### 2.2 Per-flow arm, 0.9082 configuration
+
+Same sampled flows and Rips construction, scored like the full-test campaign behind the 0.9082 headline AUC (`paper/EXACT_RESULTS.md`): full diagrams (no top-K) and hera delta<=0.01. Rips is re-run, not reused. Baseline source: **committed**.
+
+_Timed in a separate session from the probe arm (2026-11-24 vs 2026-09-23); compare the two arms with that in mind._
+
+| Stage | mean (s) | median (s) | p95 (s) | n |
+| :--- | ---: | ---: | ---: | ---: |
+| c2_scaler_s | 0.0011 | 0.0009 | 0.0016 | 30 |
+| c2_rips_s | 2.8625 | 2.8708 | 3.0859 | 30 |
+| c2_slice_s | 0.0001 | 0.0001 | 0.0002 | 30 |
+| c2_w2_s | 0.7566 | 0.7031 | 1.1474 | 30 |
+| c2_total_s | 3.6204 | 3.5854 | 3.9980 | 30 |
+| network_scaler_s | 0.0012 | 0.0011 | 0.0017 | 30 |
+| network_rips_s | 0.0536 | 0.0536 | 0.0573 | 30 |
+| network_slice_s | 0.0001 | 0.0001 | 0.0001 | 30 |
+| network_w2_s | 1.0484 | 0.7797 | 2.2843 | 30 |
+| network_total_s | 1.1032 | 0.8357 | 2.3383 | 30 |
+| physical_scaler_s | 0.0012 | 0.0011 | 0.0017 | 30 |
+| physical_rips_s | 0.3781 | 0.3765 | 0.3984 | 30 |
+| physical_slice_s | 0.0002 | 0.0001 | 0.0004 | 30 |
+| physical_w2_s | 0.6857 | 0.7182 | 0.8019 | 30 |
+| physical_total_s | 1.0651 | 1.1034 | 1.1814 | 30 |
+| total_s | 5.7888 | 5.6030 | 7.1369 | 30 |
 
 ### 2.3 Windowed arm
 
@@ -129,6 +154,7 @@ n=30 sampled test-split windows per W (FlowID order). The val-Normal medoid base
 Published claim (`CLAUDE/PROJECT_BRIEF.md`): "Per-flow inference latency, measured on a 2020-era laptop, is on the order of 1-3 seconds; we do not characterize onboard performance in this extended abstract."
 
 Per-flow decision (probe configuration, all three manifolds): mean **3.5762s**, median 3.5855s, p95 3.8591s -- ABOVE the claimed 1-3s band (3.5762s > 3.0s).
+ 0.9082 configuration: mean **5.7888s**, p95 7.1369s -- ABOVE the claimed 1-3s band (5.7888s > 3.0s).
 
 | Manifold | mean total_s | median | p95 | vs 1-3s band |
 | :--- | ---: | ---: | ---: | :--- |

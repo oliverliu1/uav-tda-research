@@ -1,0 +1,32 @@
+{
+  "artifact": "latency_Olivers-MacBook-Pro.local_per_flow_exact.csv",
+  "created_utc": "2026-11-24T03:26:42.269261+00:00",
+  "git_sha": "1fadb63a0fbd795b850d149442dac529ac713e41",
+  "library_versions": {
+    "gudhi": "3.11.0",
+    "numpy": "1.20.3",
+    "pandas": "1.3.4",
+    "sklearn": "1.3.2"
+  },
+  "params": {
+    "baseline_source": "committed",
+    "delta": 0.01,
+    "machine_info": {
+      "cpu_brand": "Apple M1 Pro",
+      "gudhi_version": "3.11.0",
+      "hardware_arch": "arm64",
+      "hostname": "Olivers-MacBook-Pro.local",
+      "logical_cores": 8,
+      "machine": "x86_64",
+      "physical_cores": 8,
+      "platform": "Darwin",
+      "python_version": "3.9.7",
+      "rosetta_translated": true,
+      "timestamp_utc": "2026-11-24T03:23:48.121054+00:00"
+    },
+    "mode": "per_flow_exact",
+    "n": 30,
+    "top_k": null
+  },
+  "uav_tda_version": "0.1.0"
+}
