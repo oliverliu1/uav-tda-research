@@ -9,7 +9,9 @@ any scientific claim. Do not relitigate decisions recorded there.
 
 Research code for **multi-manifold persistent homology (TDA) for UAV intrusion detection** on
 UAVIDS-2025, targeting AIAA SciTech 2027 (extended abstract submitted; full manuscript due
-December 2026; LaTeX source in `CLAUDE/SciTech2027_IntelligentSystems_Liu/main.tex`). Experiment
+**2026-12-01, 8:00 PM Eastern**; submitted abstract, not edited, in `CLAUDE/SciTech2027_IntelligentSystems_Liu/`;
+full manuscript in progress in `CLAUDE/SciTech2027_Manuscript/`, plan in
+`docs/superpowers/plans/2026-11-23-plan9-manuscript-rewrite.md`). Experiment
 infrastructure, not a product. The "TDA improves supervised accuracy" framing is **dead** (raw RF
 hits 96.3%). The paper claims label-free Wasserstein-2 detection, per-attack manifold attribution,
 and 3-of-4 agreement with Zeng et al. (2025). Infrastructure work is complete (Phases 1–7, PRs
@@ -26,19 +28,22 @@ No new runtime dependencies (e.g. POT) without an explicit decision.
 ## Commands
 
 ```bash
-make test        # fast suite (pytest -m "not slow"), ~2 min, 200 tests — run before claiming anything works
+make test        # fast suite (pytest -m "not slow"), ~2 min, 215 tests — run before claiming anything works
 make test-all    # includes slow monolith-equivalence tests (needs .cache/monolith-debug/)
 make lint        # ruff, safety tier
-uav-tda --help   # 18 subcommands; README "Quickstart" + "Results docs" list which command regenerates which paper/*.md
+uav-tda --help   # 20 subcommands; README "Quickstart" + "Results docs" list which command regenerates which paper/*.md
 uav-tda latency --fresh-baselines --exact-arm   # on any machine other than this Mac ALWAYS pass --fresh-baselines
 uav-tda latency --exact-only   # add just the 0.9082 arm to a host that already has a summary
 uav-tda latency-report   # re-render LATENCY_RESULTS.md for every host from committed CSVs, no timing
 uav-tda hang-check   # counts hera non-terminations, committed vs machine-built baselines
+uav-tda manuscript-numbers   # cited numbers as LaTeX macros (paper_snippets/manuscript_numbers.tex) from committed CSVs
+make manuscript   # manuscript-numbers, then build CLAUDE/SciTech2027_Manuscript/main.tex into build/
+make bundle   # manuscript-numbers, then the self-contained Overleaf copy (build/overleaf.zip)
 uav-tda artifacts [--root PATH]   # Phase 8: figures/tables/snippets + paper/MANUSCRIPT_ARTIFACTS.md from committed CSVs, no recompute
 ```
 
 Every subcommand supports `--debug` (fast stratified smoke) except `probe`, `znorm-report`,
-`manuscript-report`, `artifacts`, `hang-check`, `latency-report`. `outputs/` (32 GB, gitignored) already holds the prep CSVs and per-flow
+`manuscript-report`, `artifacts`, `hang-check`, `latency-report`, `manuscript-numbers`, `manuscript-bundle`. `outputs/` (32 GB, gitignored) already holds the prep CSVs and per-flow
 persistence diagrams; `uav-tda tda` never needs re-running for probe/exact/windowed/latency.
 
 ## File discipline
@@ -62,6 +67,10 @@ Golden-master `metrics.py` functions and the probe default path must not change 
   `paper/MANUSCRIPT_STATS.md`, `paper/ZNORM_RESULTS.md`, `paper/MANUSCRIPT_ARTIFACTS.md` —
   **all six signed off by the author 2026-11-23** (as committed at `68dae1b`; the reports' own
   "pending sign-off" sections are generator text and predate the approval).
+- **Manuscript text:** numbers in running text are macros from `manuscript_numbers.tex` (add to
+  `NUMBERS` in `uav_tda/manuscript_numbers.py`); never type a digit that comes from a result.
+  Prose AUCs carry two decimals; tables may carry four. The author builds on Overleaf from the
+  bundle; `main.tex` must stay byte-identical between repo and bundle (paths live in `paths.tex`).
 - **Canonical score** = val-Normal z-normalized **SUM** across manifolds (`metrics.apply_znorm`,
   `probe.run_probe_with_znorm`). `uav_tda/unsupervised.py` keeps the monolith's max-pool as a
   frozen port only. Val-stats and test scores must come from the same baseline realization.
