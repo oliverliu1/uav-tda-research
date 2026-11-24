@@ -12,6 +12,7 @@ decimals come from the row snippets, not from this file.
 """
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -63,7 +64,11 @@ def resolve(rebuild_dir, num: Num, _cache: Optional[dict] = None) -> str:
     """The formatted value of one number (thousands separators as ``{,}`` for LaTeX)."""
     cache = {} if _cache is None else _cache
     if num.csv not in cache:
-        cache[num.csv] = pd.read_csv(Path(rebuild_dir) / num.csv, float_precision="round_trip")
+        path = Path(rebuild_dir) / num.csv
+        if path.suffix == ".json":  # a flat JSON object is read as one row
+            cache[num.csv] = pd.DataFrame([json.loads(path.read_text())])
+        else:
+            cache[num.csv] = pd.read_csv(path, float_precision="round_trip")
     df = cache[num.csv]
     value = _cell(df, num.where, num.col, num)
     if num.over is not None:
@@ -162,6 +167,17 @@ def _spec() -> list:
     out = []
     exact, dep = "exact/exact_binary_auc.csv", "exact/flow_dependence.csv"
     top = {"subset": "all_three", "scoring": "znorm"}
+
+    # Methodology: data-derived constants.
+    caps, op_csv = "artifacts/max_edge_lengths.json", "artifacts/operating_points.csv"
+    for tag, key in (("Conn", "c2"), ("Net", "network"), ("Phys", "physical")):
+        out.append(Num(f"EpsMax{tag}", caps, {}, key, fmt=".3f"))
+    for name, col in (("NValNormal", "n_val_normal"), ("NTestNormal", "n_test_normal"),
+                      ("NTestAttack", "n_test_attack")):
+        out.append(Num(name, op_csv, top, col, fmt=",.0f"))
+    for w, tag in _W.items():
+        out.append(Num(f"NWin{tag}", "artifacts/unique_window_counts.csv", {"w": w},
+                       "n_windows", fmt=",.0f"))
 
     # Per-flow detection, full test split.
     for tag, subset in _SUBSETS.items():
